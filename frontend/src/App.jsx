@@ -1,4 +1,4 @@
-// src/App.jsx
+
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
@@ -8,6 +8,7 @@ import { checkIsLoggedIn } from './api/auth';
 import Courses from './pages/Courses';
 import Batches from './pages/Batches';
 import CourseDetail from './pages/CourseDetail';
+import BatchDetail from './pages/BatchDetail';
 
 export default function App() {
   
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="batches" element={<Batches />} />
           <Route path="courses" element={<Courses />} />
           <Route path="courses/:courseId" element={<CourseDetail />} />
+          <Route path="batches/:batchId" element={<BatchDetail />} />
           
           {}
         </Route>

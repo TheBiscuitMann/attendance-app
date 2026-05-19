@@ -37,3 +37,22 @@ export const createBatch = async (courseId, name, section) => {
         return { success: false, error: 'Network error' };
     }
 };
+
+
+// GET: Fetch a single batch and its students
+export const fetchBatch = async (batchId) => {
+    try {
+        const token = localStorage.getItem('prezence_token');
+        const response = await fetch(`${BASE_URL}/batches/${batchId}/`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+        });
+        const data = await response.json();
+        return response.ok ? { success: true, data } : { success: false, error: data };
+    } catch (error) {
+        return { success: false, error: 'Network error connecting to Django' };
+    }
+};
