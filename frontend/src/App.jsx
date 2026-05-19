@@ -9,6 +9,8 @@ import Courses from './pages/Courses';
 import Batches from './pages/Batches';
 import CourseDetail from './pages/CourseDetail';
 import BatchDetail from './pages/BatchDetail';
+import SmartSync from './pages/SmartSync';
+
 
 export default function App() {
   
@@ -45,6 +47,7 @@ export default function App() {
           <Route path="courses" element={<Courses />} />
           <Route path="courses/:courseId" element={<CourseDetail />} />
           <Route path="batches/:batchId" element={<BatchDetail />} />
+          <Route path="sync" element={<SmartSync />} />
           
           {}
         </Route>

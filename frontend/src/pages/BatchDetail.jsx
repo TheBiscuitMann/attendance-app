@@ -85,7 +85,7 @@ export default function BatchDetail() {
     const historicalMarks = {};
     
     batch.students.forEach(s => historicalMarks[s.id] = false);
-    
+    // Overwrite with the actual saved states from that session
     session.attendance.forEach(record => {
       historicalMarks[record.student] = record.present;
     });
