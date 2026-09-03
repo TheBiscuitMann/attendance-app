@@ -1,1 +1,112 @@
 @import "tailwindcss";
+
+/* ──────────────────────────────────────────────────────────────
+   Prezence — global base styles
+   Tailwind v4 dropped the default `cursor: pointer` on buttons,
+   so we restore it here for every interactive element at once.
+   ────────────────────────────────────────────────────────────── */
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  select,
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+
+  /* Keyboard users get a visible ring; mouse users don't. */
+  :focus-visible {
+    outline: 2px solid #0B2A59;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Stop iOS from zooming when a teacher taps an input on a phone. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  body {
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* ── Motion ─────────────────────────────────────────────────── */
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.99); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Referenced by Layout.jsx (dropdown + schedule modal). */
+.animate-fadeIn {
+  animation: fadeIn 0.18s ease-out both;
+}
+
+.animate-slideDown {
+  animation: slideDown 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Applied to each page wrapper so route changes read as a change,
+   not a flicker. */
+.page-enter {
+  animation: pageIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Press feedback — the small tactile detail that makes buttons
+   feel like buttons rather than coloured rectangles. */
+.press {
+  transition: transform 0.1s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+.press:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Card lift on hover. Kept subtle — it should suggest depth,
+   not bounce. */
+.lift {
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.18s ease,
+              border-color 0.18s ease;
+}
+.lift:hover {
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .lift:hover { transform: none; }
+  .press:active:not(:disabled) { transform: none; }
+}
+
+/* Slimmer scrollbars inside panels and dropdowns. */
+.thin-scroll::-webkit-scrollbar { width: 8px; }
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+.thin-scroll::-webkit-scrollbar-track { background: transparent; }

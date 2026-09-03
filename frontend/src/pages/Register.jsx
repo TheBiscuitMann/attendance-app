@@ -1,26 +1,40 @@
-// src/pages/Login.jsx
+// src/pages/Register.jsx
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { loginFaculty } from '../api/auth';
+import { registerFaculty } from '../api/auth';
 
 const NAVY = '#0B2A59';
 
-export default function Login() {
-  const [username, setUsername] = useState('');
+export default function Register() {
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const navigate = useNavigate();
 
-  const handleLogin = async (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
-    setIsLoading(true);
     setErrorMsg('');
 
-    const result = await loginFaculty(username.trim(), password);
+    // Catch the obvious problems here so the teacher gets an answer
+    // instantly instead of waiting on a round trip.
+    if (password !== confirm) {
+      setErrorMsg("Those passwords don't match.");
+      return;
+    }
+    if (password.length < 8) {
+      setErrorMsg('Use at least 8 characters for your password.');
+      return;
+    }
+
+    setIsLoading(true);
+    const result = await registerFaculty(fullName.trim(), email.trim(), password);
 
     if (result.success) {
+      // The API returns tokens on signup, so they're already logged in.
       navigate('/', { replace: true });
     } else {
       setErrorMsg(result.error);
@@ -29,7 +43,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4">
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 py-10">
 
       <div className="text-center mb-8">
         <h1 className="text-4xl font-black tracking-tight" style={{ color: NAVY }}>
@@ -45,10 +59,10 @@ export default function Login() {
         style={{ borderTop: `4px solid ${NAVY}` }}
       >
         <h2 className="text-2xl font-bold text-slate-800 mb-1 text-center">
-          Faculty Portal Login
+          Create your account
         </h2>
         <p className="text-sm text-slate-500 font-medium mb-6 text-center">
-          Sign in to manage your courses and attendance.
+          For faculty of Metropolitan University.
         </p>
 
         {errorMsg && (
@@ -58,42 +72,87 @@ export default function Login() {
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-5">
+        <form onSubmit={handleRegister} className="space-y-4">
           <div>
             <label
-              htmlFor="login-email"
+              htmlFor="reg-name"
               className="block text-sm font-bold text-slate-700 mb-1.5"
             >
-              Email address
+              Full name
             </label>
             <input
-              id="login-email"
-              type="email"
+              id="reg-name"
+              type="text"
               required
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="name"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
               className="w-full px-4 py-3 rounded-lg border border-slate-300 outline-none
                          transition-all focus:ring-2 focus:border-transparent"
               style={{ '--tw-ring-color': NAVY }}
-              placeholder="you@university.edu"
+              placeholder="Mosaddeq Hossain"
             />
           </div>
 
           <div>
             <label
-              htmlFor="login-password"
+              htmlFor="reg-email"
+              className="block text-sm font-bold text-slate-700 mb-1.5"
+            >
+              Email address
+            </label>
+            <input
+              id="reg-email"
+              type="email"
+              required
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full px-4 py-3 rounded-lg border border-slate-300 outline-none
+                         transition-all focus:ring-2 focus:border-transparent"
+              style={{ '--tw-ring-color': NAVY }}
+              placeholder="you@university.edu"
+            />
+            <p className="text-xs text-slate-400 font-medium mt-1.5">
+              You'll sign in with this address.
+            </p>
+          </div>
+
+          <div>
+            <label
+              htmlFor="reg-password"
               className="block text-sm font-bold text-slate-700 mb-1.5"
             >
               Password
             </label>
             <input
-              id="login-password"
+              id="reg-password"
               type="password"
               required
-              autoComplete="current-password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-3 rounded-lg border border-slate-300 outline-none
+                         transition-all focus:ring-2 focus:border-transparent"
+              style={{ '--tw-ring-color': NAVY }}
+              placeholder="At least 8 characters"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="reg-confirm"
+              className="block text-sm font-bold text-slate-700 mb-1.5"
+            >
+              Confirm password
+            </label>
+            <input
+              id="reg-confirm"
+              type="password"
+              required
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
               className="w-full px-4 py-3 rounded-lg border border-slate-300 outline-none
                          transition-all focus:ring-2 focus:border-transparent"
               style={{ '--tw-ring-color': NAVY }}
@@ -108,19 +167,19 @@ export default function Login() {
                        mt-2 disabled:opacity-70"
             style={{ backgroundColor: NAVY }}
           >
-            {isLoading ? 'Authenticating…' : 'Secure Login'}
+            {isLoading ? 'Creating account…' : 'Create Account'}
           </button>
         </form>
 
         <p className="text-center text-sm font-medium text-slate-500 mt-6 pt-5
                       border-t border-slate-100">
-          Don't have an account?{' '}
+          Already have an account?{' '}
           <Link
-            to="/register"
+            to="/login"
             className="font-bold hover:underline"
             style={{ color: NAVY }}
           >
-            Sign Up!
+            Log in
           </Link>
         </p>
       </div>

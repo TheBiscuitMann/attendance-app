@@ -9,7 +9,7 @@ const getAuthHeaders = () => {
     };
 };
 
-// GET: Fetch all batches
+// GET: all batches for the logged-in faculty
 export const fetchBatches = async () => {
     try {
         const response = await fetch(`${BASE_URL}/batches/`, {
@@ -23,7 +23,7 @@ export const fetchBatches = async () => {
     }
 };
 
-// POST: Create a new batch attached to a specific course
+// POST: create a batch under a course
 export const createBatch = async (courseId, name, section) => {
     try {
         const response = await fetch(`${BASE_URL}/batches/`, {
@@ -38,21 +38,47 @@ export const createBatch = async (courseId, name, section) => {
     }
 };
 
-
-// GET: Fetch a single batch and its students
+// GET: a single batch and its students
 export const fetchBatch = async (batchId) => {
     try {
-        const token = localStorage.getItem('prezence_token');
         const response = await fetch(`${BASE_URL}/batches/${batchId}/`, {
             method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: getAuthHeaders(),
         });
         const data = await response.json();
         return response.ok ? { success: true, data } : { success: false, error: data };
     } catch (error) {
         return { success: false, error: 'Network error connecting to Django' };
+    }
+};
+
+// PATCH: rename a batch or move it to a different course
+export const updateBatch = async (batchId, courseId, name, section) => {
+    try {
+        const response = await fetch(`${BASE_URL}/batches/${batchId}/`, {
+            method: 'PATCH',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ course: courseId, name, section }),
+        });
+        const data = await response.json();
+        return response.ok ? { success: true, data } : { success: false, error: data };
+    } catch (error) {
+        return { success: false, error: 'Network error' };
+    }
+};
+
+// DELETE: remove a batch.
+// Cascades — students, sessions and attendance under it go too.
+export const deleteBatch = async (batchId) => {
+    try {
+        const response = await fetch(`${BASE_URL}/batches/${batchId}/`, {
+            method: 'DELETE',
+            headers: getAuthHeaders(),
+        });
+        if (response.ok) return { success: true };
+        const data = await response.json().catch(() => ({}));
+        return { success: false, error: data };
+    } catch (error) {
+        return { success: false, error: 'Network error' };
     }
 };
