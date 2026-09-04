@@ -178,16 +178,16 @@ export default function BatchDetail() {
   const openDatePicker = () => {
     const el = dateInputRef.current;
     if (!el) return;
+    // Desktop browsers open their calendar via showPicker(). iOS Safari
+    // may throw here — that's fine: since the tap happened on the input
+    // itself, iOS opens its native picker on its own.
     if (typeof el.showPicker === 'function') {
       try {
         el.showPicker();
-        return;
       } catch (err) {
-        // Some browsers refuse showPicker outside a user gesture.
+        // Native focus/tap behavior takes over.
       }
     }
-    el.focus();
-    el.click();
   };
 
   const isDirty = () => JSON.stringify(attendanceMarks) !== baselineRef.current;
@@ -580,23 +580,28 @@ export default function BatchDetail() {
                 <div className="relative">
                   <button
                     type="button"
-                    onClick={openDatePicker}
+                    tabIndex={-1}
                     className="press flex items-center gap-2.5 px-3 py-2 rounded-lg border
                                border-slate-300 bg-white font-bold text-slate-700
-                               hover:border-slate-400 focus:ring-2 min-w-[150px]"
+                               hover:border-slate-400 focus:ring-2 min-w-[150px] w-full"
                     style={{ '--tw-ring-color': NAVY }}
                   >
                     <span>{formatDate(sessionDate)}</span>
                     <span className="ml-auto text-slate-400" aria-hidden="true">📅</span>
                   </button>
+                  {/* The real input is stretched invisibly over the button, so a
+                      tap lands on the native control itself — iOS then opens its
+                      own picker without needing showPicker(), which Safari
+                      refuses on hidden inputs. Desktop browsers still get the
+                      calendar via showPicker() from the click handler. */}
                   <input
                     id="session-date"
                     ref={dateInputRef}
                     type="date"
                     value={sessionDate}
                     onChange={(e) => requestDateChange(e.target.value)}
-                    className="absolute left-0 bottom-0 w-px h-px opacity-0 pointer-events-none"
-                    tabIndex={-1}
+                    onClick={openDatePicker}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     aria-label="Select date"
                   />
                 </div>
