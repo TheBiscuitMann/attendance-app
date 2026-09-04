@@ -110,11 +110,17 @@ export const request = async (
   path,
   { method = 'GET', body, auth = true, fallbackError } = {}
 ) => {
+  // A FormData body (file uploads) must go through untouched, and the
+  // browser must set its own multipart Content-Type with the boundary
+  // string — setting it by hand breaks the upload.
+  const isFormData =
+    typeof FormData !== 'undefined' && body instanceof FormData;
+
   const send = async () =>
     fetch(`${API_BASE}${path}`, {
       method,
-      headers: buildHeaders(auth, body !== undefined),
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      headers: buildHeaders(auth, body !== undefined && !isFormData),
+      body: isFormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
     });
 
   let response;
@@ -164,4 +170,33 @@ export const request = async (
 
   if (response.ok) return { success: true, data };
   return { success: false, error: readableError(data, fallbackError), data };
+};
+/* ── Saving a server-generated file ──────────────────────────────────
+   Exports arrive base64-encoded inside a normal JSON response (see
+   ExportSummaryView for why: download managers like IDM hijack raw
+   file responses and abort the app's fetch). This decodes the payload
+   and hands the file to the browser from memory via a blob URL, which
+   nothing can intercept. */
+
+export const saveEncodedFile = ({ content, mime, filename }) => {
+  try {
+    const binary = atob(content);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    const blob = new Blob([bytes], { type: mime || 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename || 'download';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    return { success: true };
+  } catch {
+    return { success: false, error: 'The downloaded file could not be saved.' };
+  }
 };

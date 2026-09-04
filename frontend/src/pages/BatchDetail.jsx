@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchBatch } from '../api/batches';
-import { createStudent, updateStudent } from '../api/students';
-import { createSession, saveAttendance, fetchSummary, fetchSessions } from '../api/attendance';
+import { createStudent, updateStudent, deleteStudent, importStudents } from '../api/students';
+import {
+  createSession, saveAttendance, fetchSummary, fetchSessions,
+  deleteSession, exportSummary,
+} from '../api/attendance';
 
 const NAVY = '#0B2A59';
 
@@ -90,6 +93,20 @@ export default function BatchDetail() {
 
   const [summaryData, setSummaryData] = useState([]);
   const [banner, setBanner] = useState(null); // { type, text }
+
+  // Excel import (Manage Students tab).
+  const importInputRef = useRef(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importReport, setImportReport] = useState(null); // backend's result object
+
+  // Which format is currently downloading, or null.
+  const [exportingFmt, setExportingFmt] = useState(null);
+
+  // In-place delete confirmations — same pattern as courses/batches,
+  // no window.confirm.
+  const [confirmStudentId, setConfirmStudentId] = useState(null);
+  const [confirmSessionId, setConfirmSessionId] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     loadBatchDetails();
@@ -324,6 +341,77 @@ export default function BatchDetail() {
     } else {
       showBanner('error', 'Could not save that student.');
     }
+  };
+
+  const handleDeleteStudent = async (student) => {
+    if (isDeleting) return;
+    setIsDeleting(true);
+    const result = await deleteStudent(student.id);
+    setIsDeleting(false);
+    setConfirmStudentId(null);
+    if (result.success) {
+      showBanner('success', `${student.name} was removed from this batch.`);
+      loadBatchDetails();
+    } else {
+      showBanner('error', result.error);
+    }
+  };
+
+  /* ── Excel import ──────────────────────────────────────────────── */
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    // Clear the input so picking the same file again re-triggers onChange.
+    e.target.value = '';
+    if (!file || isImporting) return;
+
+    setIsImporting(true);
+    const result = await importStudents(batchId, file);
+    setIsImporting(false);
+
+    if (result.success) {
+      setImportReport(result.data);
+      if (result.data.created > 0) loadBatchDetails();
+    } else {
+      showBanner('error', result.error);
+    }
+  };
+
+  /* ── Export ────────────────────────────────────────────────────── */
+
+  const handleExport = async (fmt) => {
+    if (exportingFmt) return;
+    setExportingFmt(fmt);
+    const result = await exportSummary(batchId, fmt);
+    setExportingFmt(null);
+    if (!result.success) showBanner('error', result.error);
+  };
+
+  /* ── Delete a session ──────────────────────────────────────────── */
+
+  const handleDeleteSession = async (session) => {
+    if (isDeleting) return;
+    setIsDeleting(true);
+    const result = await deleteSession(session.id);
+    setIsDeleting(false);
+    setConfirmSessionId(null);
+
+    if (!result.success) {
+      showBanner('error', result.error);
+      return;
+    }
+
+    const refreshed = await fetchSessions(batchId);
+    const sessionList = refreshed.success ? refreshed.data : [];
+    setSessions(sessionList);
+
+    // Only rebuild the attendance sheet if the deleted session is the
+    // one currently on screen — otherwise a teacher mid-roll-call on
+    // another date would lose their unsaved marks.
+    if (session.date === sessionDate) {
+      applyDate(sessionDate, batch.students, sessionList);
+    }
+    showBanner('success', `Session for ${formatDate(session.date)} was deleted.`);
   };
 
   if (isLoading) {
@@ -725,12 +813,32 @@ export default function BatchDetail() {
                 Late arrivals still count as present.
               </p>
             </div>
-            {barredStudents.length > 0 && (
-              <span className="bg-rose-50 text-rose-700 font-black px-4 py-1.5 rounded-lg
-                               text-xs border border-rose-200 uppercase tracking-wide">
-                🚨 {barredStudents.length} below threshold
-              </span>
-            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              {barredStudents.length > 0 && (
+                <span className="bg-rose-50 text-rose-700 font-black px-4 py-1.5 rounded-lg
+                                 text-xs border border-rose-200 uppercase tracking-wide">
+                  🚨 {barredStudents.length} below threshold
+                </span>
+              )}
+              <button
+                onClick={() => handleExport('xlsx')}
+                disabled={!!exportingFmt || summaryData.length === 0}
+                className="press text-xs font-bold px-3.5 py-2 rounded-lg border
+                           border-emerald-200 bg-emerald-50 text-emerald-700
+                           hover:bg-emerald-100 disabled:opacity-50"
+              >
+                {exportingFmt === 'xlsx' ? 'Preparing…' : '⬇ Excel'}
+              </button>
+              <button
+                onClick={() => handleExport('pdf')}
+                disabled={!!exportingFmt || summaryData.length === 0}
+                className="press text-xs font-bold px-3.5 py-2 rounded-lg border
+                           border-slate-300 bg-white text-slate-700
+                           hover:bg-slate-50 disabled:opacity-50"
+              >
+                {exportingFmt === 'pdf' ? 'Preparing…' : '⬇ PDF'}
+              </button>
+            </div>
           </div>
 
           {summaryData.length === 0 ? (
@@ -845,29 +953,63 @@ export default function BatchDetail() {
                         {session.topic || 'No topic recorded'}
                       </p>
                     </div>
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <span className="bg-slate-100 text-slate-600 text-xs font-bold
-                                       px-3 py-1 rounded-full border border-slate-200">
-                        {presentInSession} present
-                      </span>
-                      {lateInSession > 0 && (
-                        <span className="bg-amber-100 text-amber-700 text-xs font-bold
-                                         px-3 py-1 rounded-full border border-amber-200">
-                          {lateInSession} late
+                    {confirmSessionId === session.id ? (
+                      <div className="flex items-center gap-3 flex-wrap bg-rose-50 border
+                                      border-rose-200 rounded-lg px-4 py-2.5 animate-fadeIn">
+                        <p className="text-xs font-bold text-rose-800">
+                          Delete {formatDate(session.date)} and all its attendance records?
+                        </p>
+                        <button
+                          onClick={() => handleDeleteSession(session)}
+                          disabled={isDeleting}
+                          className="press text-xs text-white font-bold px-3.5 py-1.5
+                                     rounded-md shadow-sm disabled:opacity-60"
+                          style={{ backgroundColor: '#D32F2F' }}
+                        >
+                          {isDeleting ? 'Deleting…' : 'Yes, delete'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmSessionId(null)}
+                          className="press text-xs font-bold px-3.5 py-1.5 rounded-md
+                                     bg-white border border-slate-300 text-slate-600
+                                     hover:bg-slate-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="bg-slate-100 text-slate-600 text-xs font-bold
+                                         px-3 py-1 rounded-full border border-slate-200">
+                          {presentInSession} present
                         </span>
-                      )}
-                      <button
-                        onClick={() => {
-                          setActiveTab('attendance');
-                          requestDateChange(session.date, session.id);
-                        }}
-                        className="press font-black text-xs uppercase tracking-wide px-4 py-2
-                                   rounded-lg border transition-all"
-                        style={{ backgroundColor: '#eef2ff', color: NAVY, borderColor: '#c7d2fe' }}
-                      >
-                        ✏️ Edit Records
-                      </button>
-                    </div>
+                        {lateInSession > 0 && (
+                          <span className="bg-amber-100 text-amber-700 text-xs font-bold
+                                           px-3 py-1 rounded-full border border-amber-200">
+                            {lateInSession} late
+                          </span>
+                        )}
+                        <button
+                          onClick={() => {
+                            setActiveTab('attendance');
+                            requestDateChange(session.date, session.id);
+                          }}
+                          className="press font-black text-xs uppercase tracking-wide px-4 py-2
+                                     rounded-lg border transition-all"
+                          style={{ backgroundColor: '#eef2ff', color: NAVY, borderColor: '#c7d2fe' }}
+                        >
+                          ✏️ Edit Records
+                        </button>
+                        <button
+                          onClick={() => setConfirmSessionId(session.id)}
+                          className="press font-black text-xs uppercase tracking-wide px-4 py-2
+                                     rounded-lg border border-rose-200 bg-white text-rose-600
+                                     hover:bg-rose-50 transition-all"
+                        >
+                          🗑 Delete
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -933,6 +1075,38 @@ export default function BatchDetail() {
                   Authorize Enrollment
                 </button>
               </form>
+            </div>
+
+            {/* ── Bulk import ─────────────────────────────────────── */}
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mt-6">
+              <h2 className="text-xl font-bold text-slate-900 mb-1">Import from Excel</h2>
+              <p className="text-xs text-slate-500 font-medium leading-relaxed mb-4">
+                Upload a .xlsx or .csv sheet with two columns — <strong>Student ID</strong> and{' '}
+                <strong>Name</strong>. A header row is optional. Students already in this
+                batch are left untouched.
+              </p>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".xlsx,.csv"
+                onChange={handleImportFile}
+                className="hidden"
+                aria-label="Choose a roster file to import"
+              />
+              <button
+                onClick={() => importInputRef.current?.click()}
+                disabled={isImporting}
+                className="press w-full font-bold py-2.5 px-4 rounded-lg text-sm uppercase
+                           tracking-wide border-2 border-dashed transition-colors
+                           disabled:opacity-60"
+                style={{ borderColor: NAVY, color: NAVY }}
+              >
+                {isImporting ? 'Importing…' : '📄 Choose file & import'}
+              </button>
+              <p className="text-[11px] text-slate-400 font-medium mt-3">
+                Students added by import count as absent for any sessions recorded
+                before today — import the roster before taking attendance if you can.
+              </p>
             </div>
           </div>
 
@@ -1015,17 +1189,51 @@ export default function BatchDetail() {
                             </td>
                             <td className="p-4 font-semibold text-slate-800">{student.name}</td>
                             <td className="p-4 text-right pr-6">
-                              <button
-                                onClick={() => {
-                                  setEditingRowId(student.id);
-                                  setEditName(student.name);
-                                  setEditId(student.student_id);
-                                }}
-                                className="press text-sm font-bold hover:underline"
-                                style={{ color: NAVY }}
-                              >
-                                Edit Profile
-                              </button>
+                              {confirmStudentId === student.id ? (
+                                <span className="inline-flex items-center gap-2 flex-wrap
+                                                 justify-end animate-fadeIn">
+                                  <span className="text-xs font-bold text-rose-700">
+                                    Remove {student.name} and their attendance records?
+                                  </span>
+                                  <button
+                                    onClick={() => handleDeleteStudent(student)}
+                                    disabled={isDeleting}
+                                    className="press text-xs text-white font-bold px-3 py-1.5
+                                               rounded shadow-sm disabled:opacity-60"
+                                    style={{ backgroundColor: '#D32F2F' }}
+                                  >
+                                    {isDeleting ? 'Removing…' : 'Yes, remove'}
+                                  </button>
+                                  <button
+                                    onClick={() => setConfirmStudentId(null)}
+                                    className="press text-xs font-bold px-3 py-1.5 rounded
+                                               bg-slate-200 text-slate-700 hover:bg-slate-300"
+                                  >
+                                    Cancel
+                                  </button>
+                                </span>
+                              ) : (
+                                <span className="space-x-3 whitespace-nowrap">
+                                  <button
+                                    onClick={() => {
+                                      setEditingRowId(student.id);
+                                      setEditName(student.name);
+                                      setEditId(student.student_id);
+                                    }}
+                                    className="press text-sm font-bold hover:underline"
+                                    style={{ color: NAVY }}
+                                  >
+                                    Edit Profile
+                                  </button>
+                                  <button
+                                    onClick={() => setConfirmStudentId(student.id)}
+                                    className="press text-sm font-bold text-rose-600
+                                               hover:underline"
+                                  >
+                                    Remove
+                                  </button>
+                                </span>
+                              )}
                             </td>
                           </>
                         )}
@@ -1113,6 +1321,85 @@ export default function BatchDetail() {
                            text-slate-600 hover:bg-slate-200"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Import result ──────────────────────────────────────── */}
+      {importReport && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex
+                        items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden
+                          animate-fadeIn">
+            <div className="px-6 pt-6 pb-5 max-h-[70vh] overflow-y-auto thin-scroll">
+              <div className="w-11 h-11 rounded-full bg-emerald-50 flex items-center
+                              justify-center text-xl mb-4" aria-hidden="true">
+                📄
+              </div>
+              <h3 className="text-lg font-bold text-slate-900">
+                {importReport.created > 0
+                  ? `${importReport.created} student${importReport.created === 1 ? '' : 's'} imported`
+                  : 'Nothing new to import'}
+              </h3>
+              <p className="text-sm text-slate-600 font-medium mt-1">
+                {importReport.total_rows} row{importReport.total_rows === 1 ? '' : 's'} read
+                from the file.
+              </p>
+
+              {importReport.skipped_existing.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-xs font-black text-slate-500 uppercase tracking-wide">
+                    Already in this batch — skipped ({importReport.skipped_existing.length})
+                  </p>
+                  <ul className="mt-1.5 text-sm text-slate-600 font-medium space-y-0.5">
+                    {importReport.skipped_existing.map((row) => (
+                      <li key={`existing-${row.row}`}>
+                        Row {row.row}: {row.student_id} — {row.name}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {importReport.duplicates_in_file.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-xs font-black text-amber-600 uppercase tracking-wide">
+                    Duplicate IDs inside the file — skipped ({importReport.duplicates_in_file.length})
+                  </p>
+                  <ul className="mt-1.5 text-sm text-slate-600 font-medium space-y-0.5">
+                    {importReport.duplicates_in_file.map((row) => (
+                      <li key={`dup-${row.row}`}>
+                        Row {row.row}: {row.student_id} — {row.name}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {importReport.invalid_rows.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-xs font-black text-rose-600 uppercase tracking-wide">
+                    Missing an ID or a name — skipped ({importReport.invalid_rows.length})
+                  </p>
+                  <ul className="mt-1.5 text-sm text-slate-600 font-medium space-y-0.5">
+                    {importReport.invalid_rows.map((row) => (
+                      <li key={`invalid-${row.row}`}>
+                        Row {row.row}: {row.student_id || '—'} — {row.name || '—'}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200">
+              <button
+                onClick={() => setImportReport(null)}
+                className="press text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-md"
+                style={{ backgroundColor: NAVY }}
+              >
+                Done
               </button>
             </div>
           </div>

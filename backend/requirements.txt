@@ -5,9 +5,15 @@ django-cors-headers>=4.3
 python-dotenv>=1.0
 dj-database-url>=2.1
 
+# Roster import and eligibility export.
+openpyxl>=3.1
+reportlab>=4.1
+
 # Production only — the WSGI server and static file handler.
 gunicorn>=21.2
 whitenoise>=6.6
 
-# Uncomment when deploying to Postgres.
-# psycopg2-binary>=2.9
+# Postgres driver (psycopg 3 — has prebuilt wheels for recent Python
+# versions, unlike psycopg2-binary). Harmless locally: SQLite is still
+# used whenever DATABASE_URL is unset.
+psycopg[binary]>=3.2

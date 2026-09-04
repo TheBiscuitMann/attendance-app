@@ -1,8 +1,11 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 from . import views
+from . import io_views
 
 urlpatterns = [
+    path('health/', views.HealthView.as_view()),
+
     # Auth
     path('auth/register/', views.RegisterView.as_view()),
     path('auth/login/', views.LoginView.as_view()),
@@ -23,6 +26,7 @@ urlpatterns = [
 
     # Students
     path('students/', views.StudentListCreateView.as_view()),
+    path('students/import/', io_views.ImportStudentsView.as_view()),
     path('students/<int:pk>/', views.StudentDetailView.as_view()),
 
     # Sessions
@@ -32,4 +36,5 @@ urlpatterns = [
     # Attendance
     path('attendance/save/', views.SaveAttendanceView.as_view()),
     path('attendance/summary/', views.SummaryView.as_view()),
+    path('attendance/export/', io_views.ExportSummaryView.as_view()),
 ]

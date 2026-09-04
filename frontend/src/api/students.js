@@ -26,3 +26,13 @@ export const deleteStudent = (studentId) =>
         method: 'DELETE',
         fallbackError: 'Could not remove that student.',
     });
+export const importStudents = (batchId, file) => {
+    const form = new FormData();
+    form.append('batch', batchId);
+    form.append('file', file);
+    return request('/students/import/', {
+        method: 'POST',
+        body: form,
+        fallbackError: 'Could not import that file.',
+    });
+};

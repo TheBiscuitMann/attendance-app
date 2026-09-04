@@ -26,6 +26,19 @@ ELIGIBILITY_THRESHOLD = 60
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
+class HealthView(APIView):
+    """GET /api/health/ — answers instantly with no database work.
+
+    Exists for two reasons: Render can use it as a health check, and an
+    uptime pinger can hit it every few minutes to stop the free
+    instance from spinning down between classes.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response({'status': 'ok'})
+
+
 class RegisterView(APIView):
     permission_classes = [AllowAny]
 
@@ -240,6 +253,55 @@ class SaveAttendanceView(APIView):
         return Response({'message': 'Attendance saved successfully'})
 
 
+def build_summary(user, batch_id):
+    """Per-student attendance numbers for one batch.
+
+    Shared by the summary endpoint and the Excel/PDF exports, so the
+    file a teacher hands to the department can never disagree with the
+    screen they were just looking at.
+    """
+    students = Student.objects.filter(batch_id=batch_id, teacher=user)
+    sessions = Session.objects.filter(batch_id=batch_id, teacher=user)
+    total_sessions = sessions.count()
+
+    summary = []
+    for student in students:
+        # Late students are counted as present, so the rate is
+        # unaffected by lateness. `late` is reported separately as a
+        # subset of `present`.
+        present_count = Attendance.objects.filter(
+            student=student,
+            session__in=sessions,
+            present=True
+        ).count()
+
+        late_count = Attendance.objects.filter(
+            student=student,
+            session__in=sessions,
+            present=True,
+            late=True
+        ).count()
+
+        absent_count = total_sessions - present_count
+        rate = round((present_count / total_sessions) * 100) if total_sessions > 0 else 0
+
+        summary.append({
+            'id': student.id,
+            'name': student.name,
+            'student_id': student.student_id,
+            'present': present_count,
+            'late': late_count,
+            'on_time': present_count - late_count,
+            'absent': absent_count,
+            'rate': rate,
+            'total_sessions': total_sessions,
+            'threshold': ELIGIBILITY_THRESHOLD,
+            'status': 'OK' if rate >= ELIGIBILITY_THRESHOLD else 'Low'
+        })
+
+    return summary
+
+
 class SummaryView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -248,46 +310,7 @@ class SummaryView(APIView):
         if not batch_id:
             return Response({'error': 'batch parameter required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        students = Student.objects.filter(batch_id=batch_id, teacher=request.user)
-        sessions = Session.objects.filter(batch_id=batch_id, teacher=request.user)
-        total_sessions = sessions.count()
-
-        summary = []
-        for student in students:
-            # Late students are counted as present, so the rate is
-            # unaffected by lateness. `late` is reported separately as a
-            # subset of `present`.
-            present_count = Attendance.objects.filter(
-                student=student,
-                session__in=sessions,
-                present=True
-            ).count()
-
-            late_count = Attendance.objects.filter(
-                student=student,
-                session__in=sessions,
-                present=True,
-                late=True
-            ).count()
-
-            absent_count = total_sessions - present_count
-            rate = round((present_count / total_sessions) * 100) if total_sessions > 0 else 0
-
-            summary.append({
-                'id': student.id,
-                'name': student.name,
-                'student_id': student.student_id,
-                'present': present_count,
-                'late': late_count,
-                'on_time': present_count - late_count,
-                'absent': absent_count,
-                'rate': rate,
-                'total_sessions': total_sessions,
-                'threshold': ELIGIBILITY_THRESHOLD,
-                'status': 'OK' if rate >= ELIGIBILITY_THRESHOLD else 'Low'
-            })
-
-        return Response(summary)
+        return Response(build_summary(request.user, batch_id))
 
 
 # ── Weekly schedule ───────────────────────────────────────────────────────────

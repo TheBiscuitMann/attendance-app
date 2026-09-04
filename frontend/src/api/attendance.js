@@ -1,5 +1,5 @@
 // src/api/attendance.js
-import { request } from './client';
+import { request, saveEncodedFile } from './client';
 
 export const createSession = (batchId, date, topic) =>
     request('/sessions/', {
@@ -30,3 +30,10 @@ export const fetchSummary = (batchId) =>
     request(`/attendance/summary/?batch=${batchId}`, {
         fallbackError: 'Could not load the summary.',
     });
+export const exportSummary = async (batchId, fmt) => {
+    const result = await request(`/attendance/export/?batch=${batchId}&fmt=${fmt}`, {
+        fallbackError: 'Could not prepare the export.',
+    });
+    if (!result.success) return result;
+    return saveEncodedFile(result.data);
+};
