@@ -61,6 +61,10 @@ class StudentSerializer(serializers.ModelSerializer):
 class BatchSerializer(serializers.ModelSerializer):
     students = StudentSerializer(many=True, read_only=True)
     student_count = serializers.SerializerMethodField()
+    # The model allows a blank section (old rows may have none), but new
+    # and edited batches must name one — "58" alone is ambiguous once a
+    # course has sections G and H.
+    section = serializers.CharField(max_length=20, allow_blank=False)
 
     class Meta:
         model = Batch

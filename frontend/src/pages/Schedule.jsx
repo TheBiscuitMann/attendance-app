@@ -413,9 +413,14 @@ export default function Schedule() {
       )}
 
       {/* ── Sticky save bar ────────────────────────────────────── */}
-      <div className="fixed bottom-0 left-64 right-0 bg-white/95 backdrop-blur
-                      border-t border-slate-200 px-8 py-3 flex flex-wrap items-center
-                      justify-between gap-3 z-30">
+      {/* left-0 on phones (the sidebar is a drawer there); the 64
+          offset only applies from lg up, where the sidebar is static. */}
+      <div
+        className="fixed bottom-0 left-0 lg:left-64 right-0 bg-white/95 backdrop-blur
+                   border-t border-slate-200 px-4 sm:px-8 pt-3 flex flex-wrap items-center
+                   justify-between gap-3 z-30"
+        style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}
+      >
         <p className="text-xs font-bold text-slate-400">
           {saveNotice ? (
             <span className="text-emerald-700">✅ {saveNotice}</span>
