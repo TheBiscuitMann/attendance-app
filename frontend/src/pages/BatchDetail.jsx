@@ -1128,6 +1128,7 @@ export default function BatchDetail() {
                   No students yet. Add your first one on the left.
                 </p>
               ) : (
+                <div className="overflow-x-auto thin-scroll">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold
@@ -1241,6 +1242,7 @@ export default function BatchDetail() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
             </div>
           </div>

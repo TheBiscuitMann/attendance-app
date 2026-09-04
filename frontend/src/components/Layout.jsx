@@ -23,8 +23,17 @@ export default function Layout() {
   const [userEmail, setUserEmail] = useState('faculty@metrouni.edu.bd');
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  // Mobile only: the sidebar becomes a slide-in drawer. On lg+ screens
+  // it's permanently visible and this state is ignored.
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [todayClasses, setTodayClasses] = useState([]);
   const profileRef = useRef(null);
+
+  // Navigating anywhere closes the drawer — a teacher tapping
+  // "Batches" expects to land there, not to have to close a menu.
+  useEffect(() => {
+    setIsSidebarOpen(false);
+  }, [location.pathname]);
 
   /* ── Profile ─────────────────────────────────────────────────── */
 
@@ -82,19 +91,43 @@ export default function Layout() {
   return (
     <div className="min-h-screen flex bg-slate-50 font-sans">
 
+      {/* ── Mobile backdrop ─────────────────────────────────────── */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-sm lg:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       {/* ── Sidebar ─────────────────────────────────────────────── */}
+      {/* Phones: off-canvas drawer, slides in over a backdrop.
+          lg and up: static column, exactly as before. */}
       <aside
-        className="w-64 text-white flex flex-col shadow-xl z-20"
+        className={`fixed inset-y-0 left-0 z-40 w-64 text-white flex flex-col shadow-xl
+                    transform transition-transform duration-200 ease-out
+                    lg:static lg:z-20 lg:translate-x-0 lg:transform-none
+                    ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
         style={{ backgroundColor: NAVY }}
       >
-        <div className="p-6 border-b border-white/10">
-          <h1 className="text-2xl font-black tracking-tight">Prezence</h1>
-          <p className="text-[10px] text-blue-200 mt-1 font-bold tracking-widest
-                        uppercase opacity-80">
-            Metropolitan University
-          </p>
+        <div className="p-6 border-b border-white/10 flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-black tracking-tight">Prezence</h1>
+            <p className="text-[10px] text-blue-200 mt-1 font-bold tracking-widest
+                          uppercase opacity-80">
+              Metropolitan University
+            </p>
+          </div>
+          <button
+            onClick={() => setIsSidebarOpen(false)}
+            className="press lg:hidden text-blue-200 hover:text-white text-xl leading-none
+                       p-1 -mr-1 -mt-1"
+            aria-label="Close menu"
+          >
+            ✕
+          </button>
         </div>
-        <nav className="flex-1 p-4 space-y-1.5">
+        <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto thin-scroll">
           {[
             { to: '/', label: 'Dashboard', match: (p) => p === '/' },
             { to: '/courses', label: 'Course Management', match: (p) => p.startsWith('/courses') },
@@ -137,17 +170,34 @@ export default function Layout() {
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
 
         <header className="h-16 bg-white shadow-sm border-b border-slate-200 flex
-                           items-center justify-between px-8 z-30">
-          <h2 className="text-lg font-bold text-slate-700">Faculty Portal</h2>
+                           items-center justify-between px-4 sm:px-6 lg:px-8 z-30">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={() => setIsSidebarOpen(true)}
+              className="press lg:hidden text-slate-600 hover:text-slate-900 p-1 -ml-1"
+              aria-label="Open menu"
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+                   aria-hidden="true">
+                <path d="M4 7h16M4 12h16M4 17h16" />
+              </svg>
+            </button>
+            <h2 className="text-base sm:text-lg font-bold text-slate-700 truncate">
+              Faculty Portal
+            </h2>
+          </div>
 
-          <div className="relative" ref={profileRef}>
+          <div className="relative flex-shrink-0" ref={profileRef}>
             <div
               onClick={() => setIsProfileOpen(!isProfileOpen)}
               className="flex items-center gap-3 cursor-pointer hover:bg-slate-50 p-1.5 pr-2
                          rounded-full border border-transparent hover:border-slate-200
                          transition-all select-none"
             >
-              <span className="text-sm font-bold text-slate-700 pl-2">{userName}</span>
+              <span className="hidden sm:block text-sm font-bold text-slate-700 pl-2">
+                {userName}
+              </span>
               <div
                 className="w-9 h-9 text-white rounded-full flex items-center justify-center
                            font-black text-sm shadow-sm transition-transform hover:scale-105"
@@ -158,7 +208,8 @@ export default function Layout() {
             </div>
 
             {isProfileOpen && (
-              <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl
+              <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)]
+                              bg-white rounded-xl
                               shadow-2xl border border-slate-200 overflow-hidden
                               origin-top-right animate-fadeIn">
 
@@ -236,7 +287,7 @@ export default function Layout() {
           </div>
         </header>
 
-        <main className="flex-1 p-6 md:p-8 overflow-y-auto thin-scroll">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto thin-scroll">
           <Outlet />
         </main>
       </div>
