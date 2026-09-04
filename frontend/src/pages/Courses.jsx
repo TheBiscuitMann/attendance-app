@@ -91,7 +91,7 @@ export default function Courses() {
       setCourses(result.data);
       setError('');
     } else {
-      setError('Could not load your courses. Check that the server is running.');
+      setError(result.error || 'Could not load your courses.');
     }
     setIsLoading(false);
   };
@@ -134,11 +134,9 @@ export default function Courses() {
       closeForm();
       loadCourses();
     } else {
-      setError(
-        editingId
-          ? 'Could not save your changes. Try again.'
-          : 'Could not create the course. Check the code and name, then try again.'
-      );
+      // The server explains duplicates by name — "You already have a
+      // course with the code CSE-416" beats a generic failure.
+      setError(result.error || 'Could not save the course. Try again.');
     }
   };
 
@@ -148,7 +146,7 @@ export default function Courses() {
     if (result.success) {
       loadCourses();
     } else {
-      setError('Could not delete that course. Try again.');
+      setError(result.error || 'Could not delete that course. Try again.');
     }
   };
 

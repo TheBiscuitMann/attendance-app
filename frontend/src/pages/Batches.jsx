@@ -92,7 +92,7 @@ export default function Batches() {
       setBatches(batchesResult.data);
       setError('');
     } else {
-      setError('Could not load your batches. Check that the server is running.');
+      setError(result.error || 'Could not load your batches.');
     }
     setIsLoading(false);
   };
@@ -155,11 +155,7 @@ export default function Batches() {
       closeForm();
       loadData();
     } else {
-      setError(
-        editingId
-          ? 'Could not save your changes. Try again.'
-          : 'Could not create the batch. Try again.'
-      );
+      setError(result.error || 'Could not save the batch. Try again.');
     }
   };
 
@@ -169,7 +165,7 @@ export default function Batches() {
     if (result.success) {
       loadData();
     } else {
-      setError('Could not delete that batch. Try again.');
+      setError(result.error || 'Could not delete that batch. Try again.');
     }
   };
 

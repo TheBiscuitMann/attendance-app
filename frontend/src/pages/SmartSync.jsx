@@ -1,7 +1,7 @@
-
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+import { emptyWeek, saveWeek, DAYS } from '../utils/schedule';
 
 export default function SmartSync() {
   const navigate = useNavigate();
@@ -9,28 +9,39 @@ export default function SmartSync() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [extractedClasses, setExtractedClasses] = useState([]);
   const [syncComplete, setSyncComplete] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  // This time map matches the columns of your specific MU routine!
+  // Column positions in the MU master routine, mapped to 24-hour
+  // start/end times — the format the schedule stores.
   const timeColumnMap = {
-    4: '09:00 AM - 10:30 AM',
-    7: '10:30 AM - 12:00 PM',
-    10: '12:00 PM - 01:30 PM',
-    13: '01:30 PM - 03:00 PM',
-    16: '03:00 PM - 04:30 PM',
-    19: '04:30 PM - 06:00 PM'
+    4:  { start: '09:00', end: '10:30' },
+    7:  { start: '10:30', end: '12:00' },
+    10: { start: '12:00', end: '13:30' },
+    13: { start: '13:30', end: '15:00' },
+    16: { start: '15:00', end: '16:30' },
+    19: { start: '16:30', end: '18:00' },
+  };
+
+  const DAY_KEYS = DAYS.map((d) => d.key);
+
+  // The sheet writes days as "SUNDAY"; the schedule keys them as "Sun".
+  const normaliseDay = (raw) => {
+    const three = raw.trim().slice(0, 3).toLowerCase();
+    return three.charAt(0).toUpperCase() + three.slice(1);
   };
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file || !initials) {
-      alert("Please enter your initials and select an Excel file.");
+      setErrorMsg('Enter your initials and choose an Excel file first.');
       return;
     }
 
+    setErrorMsg('');
     setIsProcessing(true);
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       // 1. Read the Excel File
       const workbook = XLSX.read(event.target.result, { type: 'binary' });
       const firstSheetName = workbook.SheetNames[0];
@@ -39,14 +50,16 @@ export default function SmartSync() {
       // 2. Convert to a 2D Array (Rows and Columns)
       const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
       
-      const mySchedule = {};
-      let currentDay = "Unknown Day";
+      const week = emptyWeek();
+      let extracted = 0;
+      let currentDay = null;
 
       // 3. The Extraction Engine (Scanning the massive grid)
       data.forEach((row, rowIndex) => {
         // If the first column has text (like "SUNDAY"), remember it!
         if (row[0] && typeof row[0] === 'string' && row[0].trim() !== '') {
-          currentDay = row[0].trim().substring(0, 3); // Gets 'Sun', 'Mon', etc.
+          const candidate = normaliseDay(row[0]);
+          if (DAY_KEYS.includes(candidate)) currentDay = candidate;
         }
 
         const batchName = row[1] || "Unknown Batch";
@@ -56,36 +69,39 @@ export default function SmartSync() {
           const cellValue = row[col];
           
           // If this cell matches the Professor's Initials (e.g., "FAR")
-          if (cellValue === initials.toUpperCase()) {
-            
-            // Because of the MU format, we know Course is 2 cells left, Room is 1 cell left
+          if (currentDay && cellValue === initials.toUpperCase()) {
+
+            // In the MU layout the course code sits two cells left of
+            // the initials, and the room one cell left.
             const courseCode = row[col - 2];
             const roomNum = row[col - 1];
-            const timeSlot = timeColumnMap[col] || "Unknown Time";
+            const slot = timeColumnMap[col] || { start: '', end: '' };
 
-            // Generate a unique ID for this class block
-            const classId = `${currentDay}-${timeSlot}-${courseCode}`;
-
-            // Save it to our mapped schedule
-            mySchedule[classId] = {
-              title: `${courseCode} (${batchName})`,
-              room: roomNum,
-              time: timeSlot.split('-')[0].trim(), // Just take the start time
-              days: [currentDay]
-            };
+            week[currentDay].push({
+              // Routine entries are free text — they aren't tied to a
+              // course the teacher created in the app.
+              courseId: 'custom',
+              customTitle: `${courseCode} (${batchName})`,
+              room: roomNum ? String(roomNum) : '',
+              start: slot.start,
+              end: slot.end,
+            });
+            extracted += 1;
           }
         }
       });
 
-      // 4. Save to Browser Memory (Connecting it to your Profile Dropdown!)
-      localStorage.setItem('mu_profile_schedules', JSON.stringify(mySchedule));
-      
-      // Tell the rest of the app the schedule updated
-      window.dispatchEvent(new Event('profileScheduleUpdated'));
-
-      setExtractedClasses(Object.values(mySchedule));
+      // 4. Save to the server — this replaces the whole weekly
+      //    schedule, and saveWeek notifies the rest of the app.
+      const result = await saveWeek(week);
       setIsProcessing(false);
-      setSyncComplete(true);
+
+      if (result.success) {
+        setExtractedClasses(new Array(extracted));
+        setSyncComplete(true);
+      } else {
+        setErrorMsg(result.error);
+      }
     };
 
     reader.readAsBinaryString(file);
@@ -106,6 +122,17 @@ export default function SmartSync() {
         <div className="bg-white rounded-3xl p-10 shadow-xl border border-slate-100 max-w-2xl mx-auto relative overflow-hidden">
           {/* Decorative background pattern */}
           <div className="absolute top-0 left-0 w-full h-2 bg-[#D32F2F]"></div>
+
+          {errorMsg && (
+            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+              <p className="text-sm font-semibold text-red-800">{errorMsg}</p>
+            </div>
+          )}
+
+          <p className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3
+                        text-sm font-semibold text-amber-800">
+            ⚠️ Syncing replaces your entire weekly schedule with what's found in the routine.
+          </p>
 
           <div className="space-y-8">
             {/* Step 1 */}

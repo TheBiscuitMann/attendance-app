@@ -80,3 +80,54 @@ class Attendance(models.Model):
         if not self.present:
             return f"{self.student.name} - Absent"
         return f"{self.student.name} - {'Late' if self.late else 'Present'}"
+
+
+class ScheduleEntry(models.Model):
+    """One class on one day of a teacher's weekly routine.
+
+    This used to live in the browser's localStorage, which meant a
+    teacher who logged in from another computer saw an empty schedule
+    and clearing browser data wiped it permanently.
+    """
+
+    DAY_CHOICES = [
+        ('Sun', 'Sunday'),
+        ('Mon', 'Monday'),
+        ('Tue', 'Tuesday'),
+        ('Wed', 'Wednesday'),
+        ('Thu', 'Thursday'),
+        ('Fri', 'Friday'),
+        ('Sat', 'Saturday'),
+    ]
+
+    teacher = models.ForeignKey(User, on_delete=models.CASCADE, related_name='schedule')
+    day = models.CharField(max_length=3, choices=DAY_CHOICES)
+
+    # Either a real course, or free text for anything that isn't one
+    # (a departmental meeting, exam duty). Exactly one is used.
+    course = models.ForeignKey(
+        Course, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='schedule_entries'
+    )
+    custom_title = models.CharField(max_length=150, blank=True, default='')
+
+    room = models.CharField(max_length=50, blank=True, default='')
+
+    # Stored as "HH:MM" in 24-hour form. Kept as text rather than a
+    # TimeField because it is always displayed as-is, sorts correctly as
+    # a string, and an unset time is a natural empty string.
+    start = models.CharField(max_length=5, blank=True, default='')
+    end = models.CharField(max_length=5, blank=True, default='')
+
+    class Meta:
+        ordering = ['start']
+        verbose_name_plural = 'schedule entries'
+
+    @property
+    def title(self):
+        if self.course:
+            return f"{self.course.code}: {self.course.name}"
+        return self.custom_title
+
+    def __str__(self):
+        return f"{self.day} {self.start} — {self.title}"

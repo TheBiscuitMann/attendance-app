@@ -11,6 +11,8 @@ import CourseDetail from './pages/CourseDetail';
 import BatchDetail from './pages/BatchDetail';
 import Schedule from './pages/Schedule';
 import Profile from './pages/Profile';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import SmartSync from './pages/SmartSync';
 
 export default function App() {
@@ -49,6 +51,22 @@ export default function App() {
           element={
             <PublicRoute>
               <Register />
+            </PublicRoute>
+          }
+        />
+        <Route
+          path="/forgot-password"
+          element={
+            <PublicRoute>
+              <ForgotPassword />
+            </PublicRoute>
+          }
+        />
+        <Route
+          path="/reset-password"
+          element={
+            <PublicRoute>
+              <ResetPassword />
             </PublicRoute>
           }
         />

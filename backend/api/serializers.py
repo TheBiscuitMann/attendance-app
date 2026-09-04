@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
-from .models import Course, Batch, Student, Session, Attendance
+from .models import Course, Batch, Student, Session, Attendance, ScheduleEntry
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
@@ -108,3 +108,13 @@ class SessionSerializer(serializers.ModelSerializer):
         model = Session
         fields = ['id', 'batch', 'date', 'topic', 'attendance', 'created_at']
         read_only_fields = ['created_at']
+
+
+class ScheduleEntrySerializer(serializers.ModelSerializer):
+    # Resolved server-side so the header itinerary doesn't have to fetch
+    # the course list just to render a class name.
+    title = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = ScheduleEntry
+        fields = ['id', 'day', 'course', 'custom_title', 'title', 'room', 'start', 'end']

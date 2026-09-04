@@ -1,68 +1,32 @@
+// src/api/attendance.js
+import { request } from './client';
 
-const BASE_URL = 'http://127.0.0.1:8000/api';
+export const createSession = (batchId, date, topic) =>
+    request('/sessions/', {
+        method: 'POST',
+        body: { batch: batchId, date, topic },
+        fallbackError: 'Could not start a session for this date.',
+    });
 
-const getAuthHeaders = () => {
-    const token = localStorage.getItem('prezence_token');
-    return {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-    };
-};
+export const fetchSessions = (batchId) =>
+    request(`/sessions/?batch=${batchId}`, {
+        fallbackError: 'Could not load the session history.',
+    });
 
-// date n topic
-export const createSession = async (batchId, date, topic) => {
-    try {
-        const response = await fetch(`${BASE_URL}/sessions/`, {
-            method: 'POST',
-            headers: getAuthHeaders(),
-            body: JSON.stringify({ batch: batchId, date, topic }),
-        });
-        const data = await response.json();
-        return response.ok ? { success: true, data } : { success: false, error: data };
-    } catch (error) {
-        return { success: false, error: 'Network error' };
-    }
-};
+export const deleteSession = (sessionId) =>
+    request(`/sessions/${sessionId}/`, {
+        method: 'DELETE',
+        fallbackError: 'Could not delete that session.',
+    });
 
-// Fetch Session History
-export const fetchSessions = async (batchId) => {
-    try {
-        const response = await fetch(`${BASE_URL}/sessions/?batch=${batchId}`, {
-            method: 'GET',
-            headers: getAuthHeaders(),
-        });
-        const data = await response.json();
-        return response.ok ? { success: true, data } : { success: false, error: data };
-    } catch (error) {
-        return { success: false, error: 'Network error' };
-    }
-};
+export const saveAttendance = (sessionId, records) =>
+    request('/attendance/save/', {
+        method: 'POST',
+        body: { session_id: sessionId, records },
+        fallbackError: 'Could not save attendance.',
+    });
 
-// Save the actual Attendance marks
-export const saveAttendance = async (sessionId, records) => {
-    try {
-        const response = await fetch(`${BASE_URL}/attendance/save/`, {
-            method: 'POST',
-            headers: getAuthHeaders(),
-            body: JSON.stringify({ session_id: sessionId, records }),
-        });
-        const data = await response.json();
-        return response.ok ? { success: true, data } : { success: false, error: data };
-    } catch (error) {
-        return { success: false, error: 'Network error' };
-    }
-};
-
-// Get the Attendance Summary (Percentages)
-export const fetchSummary = async (batchId) => {
-    try {
-        const response = await fetch(`${BASE_URL}/attendance/summary/?batch=${batchId}`, {
-            method: 'GET',
-            headers: getAuthHeaders(),
-        });
-        const data = await response.json();
-        return response.ok ? { success: true, data } : { success: false, error: data };
-    } catch (error) {
-        return { success: false, error: 'Network error' };
-    }
-};
+export const fetchSummary = (batchId) =>
+    request(`/attendance/summary/?batch=${batchId}`, {
+        fallbackError: 'Could not load the summary.',
+    });

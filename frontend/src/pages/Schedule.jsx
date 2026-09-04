@@ -7,7 +7,7 @@ import {
   emptyWeek,
   formatTime,
   newEntryId,
-  loadWeek,
+  fetchWeek,
   saveWeek,
   todayKey,
 } from '../utils/schedule';
@@ -20,19 +20,31 @@ export default function Schedule() {
   const [courses, setCourses] = useState([]);
   const [activeDay, setActiveDay] = useState('Sun');
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [saveNotice, setSaveNotice] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const baselineRef = useRef('{}');
 
   useEffect(() => {
-    const stored = loadWeek();
-    setWeek(stored);
-    baselineRef.current = JSON.stringify(stored);
+    const load = async () => {
+      // Both come from the server now, so fetch them together.
+      const [scheduleResult, coursesResult] = await Promise.all([
+        fetchWeek(),
+        fetchCourses(),
+      ]);
 
-    fetchCourses().then((result) => {
-      if (result.success) setCourses(result.data);
+      if (scheduleResult.success) {
+        setWeek(scheduleResult.week);
+        baselineRef.current = JSON.stringify(scheduleResult.week);
+      } else {
+        setLoadError(scheduleResult.error);
+      }
+
+      if (coursesResult.success) setCourses(coursesResult.data);
       setIsLoading(false);
-    });
+    };
+    load();
   }, []);
 
   /* ── Entry editing ─────────────────────────────────────────────── */
@@ -69,30 +81,39 @@ export default function Schedule() {
     return course ? `${course.code}: ${course.name}` : entry.title || '';
   };
 
-  const handleSave = () => {
-    // Resolve each display title once, at save time, so the header
-    // itinerary doesn't have to re-fetch courses to render.
+  const handleSave = async () => {
+    if (isSaving) return;
+
+    // Drop rows the teacher never filled in before sending.
     const cleaned = {};
     DAYS.forEach(({ key }) => {
-      cleaned[key] = (week[key] || [])
-        .map((entry) => ({ ...entry, title: titleFor(entry) }))
-        .filter((entry) => entry.title)
-        .sort((a, b) => (a.start || '99:99').localeCompare(b.start || '99:99'));
+      cleaned[key] = (week[key] || []).filter((entry) => titleFor(entry));
     });
 
-    saveWeek(cleaned);
-    setWeek(cleaned);
-    baselineRef.current = JSON.stringify(cleaned);
-    setSaveNotice(`Schedule saved for ${activeDayLabel}.`);
-    setTimeout(() => setSaveNotice(''), 3200);
+    setIsSaving(true);
+    setLoadError('');
+    const result = await saveWeek(cleaned);
+    setIsSaving(false);
+
+    if (result.success) {
+      // The server returns the saved week already sorted by time.
+      setWeek(result.week);
+      baselineRef.current = JSON.stringify(result.week);
+      setSaveNotice(`Schedule saved for ${activeDayLabel}.`);
+      setTimeout(() => setSaveNotice(''), 3200);
+    } else {
+      setLoadError(result.error);
+    }
   };
 
   const isDirty = () => JSON.stringify(week) !== baselineRef.current;
 
-  const handleDiscard = () => {
-    const stored = loadWeek();
-    setWeek(stored);
-    baselineRef.current = JSON.stringify(stored);
+  const handleDiscard = async () => {
+    const result = await fetchWeek();
+    if (result.success) {
+      setWeek(result.week);
+      baselineRef.current = JSON.stringify(result.week);
+    }
   };
 
   const activeDayLabel = DAYS.find((d) => d.key === activeDay)?.label || '';
@@ -132,6 +153,20 @@ export default function Schedule() {
           Build your weekly routine — pick a day, then add the classes you teach.
         </p>
       </div>
+
+      {loadError && (
+        <div className="mb-6 flex items-start justify-between gap-4 rounded-lg border
+                        border-red-200 bg-red-50 px-4 py-3 animate-slideDown">
+          <p className="text-sm font-semibold text-red-800">{loadError}</p>
+          <button
+            onClick={() => setLoadError('')}
+            className="text-red-400 hover:text-red-700 font-bold text-sm leading-none"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* ── Week at a glance ───────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-8">
@@ -402,11 +437,12 @@ export default function Schedule() {
           )}
           <button
             onClick={handleSave}
+            disabled={isSaving}
             className="press px-6 py-2.5 rounded-lg font-bold text-white shadow-md
-                       text-sm uppercase tracking-wide"
+                       text-sm uppercase tracking-wide disabled:opacity-60"
             style={{ backgroundColor: RED }}
           >
-            💾 Save Schedule
+            {isSaving ? 'Saving…' : '💾 Save Schedule'}
           </button>
         </div>
       </div>

@@ -1,87 +1,31 @@
 // src/api/courses.js
-const BASE_URL = 'http://127.0.0.1:8000/api';
+import { request } from './client';
 
-const getAuthHeaders = () => {
-    const token = localStorage.getItem('prezence_token');
-    return {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-    };
-};
+export const fetchCourses = () =>
+    request('/courses/', { fallbackError: 'Could not load your courses.' });
 
-// GET: all courses for the logged-in faculty
-export const fetchCourses = async () => {
-    try {
-        const response = await fetch(`${BASE_URL}/courses/`, {
-            method: 'GET',
-            headers: getAuthHeaders(),
-        });
-        const data = await response.json();
-        return response.ok ? { success: true, data } : { success: false, error: data };
-    } catch (error) {
-        return { success: false, error: 'Network error connecting to Django' };
-    }
-};
+export const createCourse = (code, name) =>
+    request('/courses/', {
+        method: 'POST',
+        body: { code, name },
+        fallbackError: 'Could not create the course.',
+    });
 
-// POST: create a course
-export const createCourse = async (code, name) => {
-    try {
-        const response = await fetch(`${BASE_URL}/courses/`, {
-            method: 'POST',
-            headers: getAuthHeaders(),
-            body: JSON.stringify({ code, name }),
-        });
-        const data = await response.json();
-        return response.ok ? { success: true, data } : { success: false, error: data };
-    } catch (error) {
-        return { success: false, error: 'Network error connecting to Django' };
-    }
-};
+export const fetchCourse = (courseId) =>
+    request(`/courses/${courseId}/`, { fallbackError: 'Could not load that course.' });
 
-// GET: a single course, including its batches
-export const fetchCourse = async (courseId) => {
-    try {
-        const response = await fetch(`${BASE_URL}/courses/${courseId}/`, {
-            method: 'GET',
-            headers: getAuthHeaders(),
-        });
-        const data = await response.json();
-        return response.ok ? { success: true, data } : { success: false, error: data };
-    } catch (error) {
-        return { success: false, error: 'Network error connecting to Django' };
-    }
-};
-
-// PATCH: rename or re-code an existing course.
 // PATCH rather than PUT so we only send the fields that changed.
-export const updateCourse = async (courseId, code, name) => {
-    try {
-        const response = await fetch(`${BASE_URL}/courses/${courseId}/`, {
-            method: 'PATCH',
-            headers: getAuthHeaders(),
-            body: JSON.stringify({ code, name }),
-        });
-        const data = await response.json();
-        return response.ok ? { success: true, data } : { success: false, error: data };
-    } catch (error) {
-        return { success: false, error: 'Network error connecting to Django' };
-    }
-};
+export const updateCourse = (courseId, code, name) =>
+    request(`/courses/${courseId}/`, {
+        method: 'PATCH',
+        body: { code, name },
+        fallbackError: 'Could not save your changes.',
+    });
 
-// DELETE: remove a course.
-// Cascades in the database — batches, students, sessions and
-// attendance under this course all go with it.
-export const deleteCourse = async (courseId) => {
-    try {
-        const response = await fetch(`${BASE_URL}/courses/${courseId}/`, {
-            method: 'DELETE',
-            headers: getAuthHeaders(),
-        });
-        // 204 No Content has an empty body, so don't try to parse it.
-        if (response.ok) return { success: true };
-        const data = await response.json().catch(() => ({}));
-        return { success: false, error: data };
-    } catch (error) {
-        return { success: false, error: 'Network error connecting to Django' };
-    }
-};
+// Cascades in the database — batches, students, sessions and attendance
+// under this course all go with it.
+export const deleteCourse = (courseId) =>
+    request(`/courses/${courseId}/`, {
+        method: 'DELETE',
+        fallbackError: 'Could not delete that course.',
+    });

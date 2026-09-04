@@ -49,6 +49,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt',
+    # Lets a rotated refresh token be invalidated immediately.
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'api',
 ]
@@ -135,12 +137,29 @@ REST_FRAMEWORK = {
     # stop unlimited password guessing.
     'DEFAULT_THROTTLE_RATES': {
         'login': '10/min',
+        # Reset requests send email, so they're throttled harder — this
+        # endpoint is unauthenticated and would otherwise let anyone
+        # flood a teacher's inbox.
+        'password_reset': '5/hour',
     },
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=12),
+
+    # Rotation is what makes a session "sticky". Each refresh issues a
+    # brand new refresh token, so the window keeps sliding forward: a
+    # teacher who opens the app at least once every 90 days never has to
+    # log in again, and only real inactivity signs them out. Without
+    # rotation the original token expires on a fixed date no matter how
+    # often the app is used.
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=90),
+    'ROTATE_REFRESH_TOKENS': True,
+
+    # An old refresh token stops working the moment it's exchanged.
+    # Otherwise a token copied from a shared computer would stay valid
+    # for the full 90 days.
+    'BLACKLIST_AFTER_ROTATION': True,
 }
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
@@ -157,6 +176,31 @@ CORS_ALLOW_ALL_ORIGINS = DEBUG
 CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS', '')
+
+# ── Email ─────────────────────────────────────────────────────────────────────
+#
+# Password reset is the only thing that sends mail. With no SMTP host
+# configured, Django prints the message to the terminal instead — which
+# is exactly what you want in development: the reset link appears in the
+# runserver output and the whole flow is testable with no signup.
+
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '').strip()
+
+if EMAIL_HOST:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
+    EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
+    EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+    EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+DEFAULT_FROM_EMAIL = os.environ.get(
+    'DEFAULT_FROM_EMAIL', 'Prezence <no-reply@metrouni.edu.bd>'
+)
+
+# Where the reset link points — the frontend, not the API.
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173').rstrip('/')
 
 # ── Production hardening ──────────────────────────────────────────────────────
 

@@ -9,6 +9,9 @@ urlpatterns = [
     path('auth/me/', views.MeView.as_view()),
     path('auth/refresh/', TokenRefreshView.as_view()),
     path('auth/change-password/', views.ChangePasswordView.as_view()),
+    path('auth/password-reset/', views.PasswordResetRequestView.as_view()),
+    path('auth/password-reset/confirm/', views.PasswordResetConfirmView.as_view()),
+    path('schedule/', views.ScheduleView.as_view()),
 
     # Courses
     path('courses/', views.CourseListCreateView.as_view()),

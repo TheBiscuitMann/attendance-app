@@ -7,12 +7,17 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError as DjangoValidationError
-from .models import Course, Batch, Student, Session, Attendance
+from django.core.mail import send_mail
+from django.conf import settings as django_settings
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from .models import Course, Batch, Student, Session, Attendance, ScheduleEntry
 from .serializers import (
     RegisterSerializer, UserSerializer, CourseSerializer,
     BatchSerializer, StudentSerializer, SessionSerializer,
-    AttendanceSerializer
+    AttendanceSerializer, ScheduleEntrySerializer
 )
 
 # Minimum attendance percentage a student needs to sit the final exam.
@@ -283,3 +288,173 @@ class SummaryView(APIView):
             })
 
         return Response(summary)
+
+
+# ── Weekly schedule ───────────────────────────────────────────────────────────
+
+DAY_KEYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+
+class ScheduleView(APIView):
+    """The teacher's weekly routine, shaped as a day-keyed dictionary.
+
+    GET  returns  {"Sun": [entry, ...], "Mon": [...], ...}
+    PUT  replaces the whole week in one call, which matches how the
+         Schedule page saves: the client owns the full week and sends
+         it back, so there's no diffing to get wrong.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        entries = ScheduleEntry.objects.filter(
+            teacher=request.user
+        ).select_related('course')
+
+        week = {day: [] for day in DAY_KEYS}
+        for entry in entries:
+            if entry.day in week:
+                week[entry.day].append(ScheduleEntrySerializer(entry).data)
+
+        # Clock order within each day; untimed classes sink to the end.
+        for day in week:
+            week[day].sort(key=lambda item: item.get('start') or '99:99')
+
+        return Response(week)
+
+    def put(self, request):
+        week = request.data.get('week')
+        if not isinstance(week, dict):
+            return Response(
+                {'error': 'Expected a "week" object keyed by day.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Only the teacher's own courses may be referenced — otherwise a
+        # crafted request could attach someone else's course to a slot.
+        own_course_ids = set(
+            Course.objects.filter(teacher=request.user).values_list('id', flat=True)
+        )
+
+        new_entries = []
+        for day, items in week.items():
+            if day not in DAY_KEYS or not isinstance(items, list):
+                continue
+
+            for item in items:
+                course_id = item.get('course')
+                try:
+                    course_id = int(course_id) if course_id else None
+                except (TypeError, ValueError):
+                    course_id = None
+                if course_id not in own_course_ids:
+                    course_id = None
+
+                custom_title = (item.get('custom_title') or '').strip()[:150]
+
+                # An entry with neither a course nor a title is an empty
+                # row the teacher never filled in.
+                if course_id is None and not custom_title:
+                    continue
+
+                new_entries.append(ScheduleEntry(
+                    teacher=request.user,
+                    day=day,
+                    course_id=course_id,
+                    custom_title=custom_title,
+                    room=(item.get('room') or '').strip()[:50],
+                    start=(item.get('start') or '').strip()[:5],
+                    end=(item.get('end') or '').strip()[:5],
+                ))
+
+        # Replace wholesale. Cheap at this size (a routine is tens of
+        # rows, not thousands) and avoids partial-update bugs.
+        ScheduleEntry.objects.filter(teacher=request.user).delete()
+        ScheduleEntry.objects.bulk_create(new_entries)
+
+        return self.get(request)
+
+
+# ── Password reset ────────────────────────────────────────────────────────────
+
+class PasswordResetRequestView(APIView):
+    """Emails a one-time reset link.
+
+    Always answers 200, even for an address with no account. Saying
+    "no such user" would turn this endpoint into a way to discover which
+    email addresses are registered.
+    """
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'password_reset'
+
+    def post(self, request):
+        email = (request.data.get('email') or '').strip().lower()
+        generic = Response({
+            'message': 'If that address has an account, a reset link is on its way.'
+        })
+
+        if not email:
+            return generic
+
+        user = User.objects.filter(username__iexact=email).first()
+        if not user:
+            return generic
+
+        # The token is derived from the user's current password hash and
+        # last-login time, so it stops working the moment the password
+        # changes or the link is used.
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        link = f"{django_settings.FRONTEND_URL}/reset-password?uid={uid}&token={token}"
+
+        send_mail(
+            subject='Reset your Prezence password',
+            message=(
+                f"Hello {user.first_name or 'there'},\n\n"
+                "Someone asked to reset the password for your Prezence account. "
+                "Open the link below to choose a new one:\n\n"
+                f"{link}\n\n"
+                "The link works once and expires in a few days. If you didn't "
+                "ask for this, you can ignore this email — nothing has changed.\n\n"
+                "— Prezence, Metropolitan University"
+            ),
+            from_email=django_settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email or email],
+            fail_silently=True,
+        )
+
+        return generic
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        uid = request.data.get('uid') or ''
+        token = request.data.get('token') or ''
+        new_password = request.data.get('new_password') or ''
+
+        try:
+            user_id = force_str(urlsafe_base64_decode(uid))
+            user = User.objects.get(pk=user_id)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            user = None
+
+        if user is None or not default_token_generator.check_token(user, token):
+            return Response(
+                {'error': 'This reset link is invalid or has already been used. '
+                          'Please request a new one.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            validate_password(new_password, user)
+        except DjangoValidationError as error:
+            return Response(
+                {'new_password': list(error.messages)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user.set_password(new_password)
+        user.save()
+        return Response({'message': 'Your password has been reset. You can log in now.'})

@@ -1,7 +1,10 @@
 // src/utils/schedule.js
 //
-// One place for the weekly-schedule data shape, so the Schedule page and
-// the header itinerary can't drift apart.
+// One place for the weekly-schedule data shape. The data itself now
+// lives on the server, so a teacher sees the same routine on any
+// machine they log in from.
+
+import { request } from '../api/client';
 
 export const DAYS = [
   { key: 'Sun', label: 'Sunday' },
@@ -13,8 +16,8 @@ export const DAYS = [
   { key: 'Sat', label: 'Saturday' },
 ];
 
-export const WEEK_KEY = 'mu_weekly_schedule';
-const LEGACY_KEY = 'mu_profile_schedules';
+const LEGACY_WEEK_KEY = 'mu_weekly_schedule';
+const LEGACY_COURSE_KEY = 'mu_profile_schedules';
 
 // Fired after a save so any mounted component can refresh itself.
 export const SCHEDULE_EVENT = 'profileScheduleUpdated';
@@ -48,22 +51,34 @@ export const formatTime = (value) => {
 export const newEntryId = () =>
   `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 
-// The original format stored one record per course with a list of days
-// and a single time. Fold it into the day-first shape so nobody loses
-// the schedule they already entered.
-const migrateLegacySchedule = () => {
-  const raw = localStorage.getItem(LEGACY_KEY);
-  if (!raw) return null;
+/* ── Migration off localStorage ──────────────────────────────────────
+   Anything a teacher entered before the schedule moved server-side is
+   pushed up once, then cleared locally. Handles both the day-keyed
+   format and the original course-keyed one. */
+
+const readLegacyWeek = () => {
+  const raw = localStorage.getItem(LEGACY_WEEK_KEY);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && Object.keys(parsed).length) return { ...emptyWeek(), ...parsed };
+    } catch {
+      /* fall through to the older format */
+    }
+  }
+
+  const legacyRaw = localStorage.getItem(LEGACY_COURSE_KEY);
+  if (!legacyRaw) return null;
   try {
-    const old = JSON.parse(raw);
+    const old = JSON.parse(legacyRaw);
     const week = emptyWeek();
     Object.entries(old).forEach(([courseId, record]) => {
       (record.days || []).forEach((day) => {
         if (!week[day]) return;
         week[day].push({
           id: newEntryId(),
-          courseId: String(courseId),
-          customTitle: '',
+          course: Number(courseId) || null,
+          customTitle: record.title || '',
           title: record.title || '',
           room: record.room || '',
           start: record.time || '',
@@ -77,22 +92,81 @@ const migrateLegacySchedule = () => {
   }
 };
 
-export const loadWeek = () => {
-  const raw = localStorage.getItem(WEEK_KEY);
-  if (raw) {
-    try {
-      return { ...emptyWeek(), ...JSON.parse(raw) };
-    } catch {
-      return emptyWeek();
-    }
-  }
-  return migrateLegacySchedule() || emptyWeek();
+const clearLegacy = () => {
+  localStorage.removeItem(LEGACY_WEEK_KEY);
+  localStorage.removeItem(LEGACY_COURSE_KEY);
 };
 
-export const saveWeek = (week) => {
-  localStorage.setItem(WEEK_KEY, JSON.stringify(week));
-  localStorage.removeItem(LEGACY_KEY); // migration is complete
+/* ── Server shape <-> UI shape ───────────────────────────────────────
+   The API sends `course` and `custom_title`; the editor works with
+   `courseId` (which may be the string "custom") and `customTitle`. */
+
+const fromServer = (week) => {
+  const result = emptyWeek();
+  DAYS.forEach(({ key }) => {
+    result[key] = (week[key] || []).map((entry) => ({
+      id: entry.id ? String(entry.id) : newEntryId(),
+      courseId: entry.course ? String(entry.course) : (entry.custom_title ? 'custom' : ''),
+      customTitle: entry.custom_title || '',
+      title: entry.title || '',
+      room: entry.room || '',
+      start: entry.start || '',
+      end: entry.end || '',
+    }));
+  });
+  return result;
+};
+
+const toServer = (week) => {
+  const payload = {};
+  DAYS.forEach(({ key }) => {
+    payload[key] = (week[key] || []).map((entry) => ({
+      course: entry.courseId && entry.courseId !== 'custom' ? entry.courseId : null,
+      custom_title: entry.courseId === 'custom' ? entry.customTitle : '',
+      room: entry.room || '',
+      start: entry.start || '',
+      end: entry.end || '',
+    }));
+  });
+  return payload;
+};
+
+/* ── Public API ─────────────────────────────────────────────────── */
+
+export const fetchWeek = async () => {
+  const result = await request('/schedule/', {
+    fallbackError: 'Could not load your schedule.',
+  });
+  if (!result.success) return result;
+
+  let week = fromServer(result.data);
+
+  // First run after the move to the server: push whatever was stored
+  // in this browser, then never look at localStorage again.
+  const isEmpty = DAYS.every(({ key }) => week[key].length === 0);
+  if (isEmpty) {
+    const legacy = readLegacyWeek();
+    if (legacy) {
+      const uploaded = await saveWeek(legacy);
+      clearLegacy();
+      if (uploaded.success) week = uploaded.week;
+    }
+  }
+
+  return { success: true, week };
+};
+
+export const saveWeek = async (week) => {
+  const result = await request('/schedule/', {
+    method: 'PUT',
+    body: { week: toServer(week) },
+    fallbackError: 'Could not save your schedule.',
+  });
+
+  if (!result.success) return result;
+
   window.dispatchEvent(new Event(SCHEDULE_EVENT));
+  return { success: true, week: fromServer(result.data) };
 };
 
 export const todayKey = () => DAYS[new Date().getDay()].key;

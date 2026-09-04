@@ -1,6 +1,6 @@
 // src/pages/Login.jsx
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { loginFaculty } from '../api/auth';
 
 const NAVY = '#0B2A59';
@@ -12,6 +12,11 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
 
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // The API client redirects here with ?expired=1 when a token has run
+  // out, so the teacher knows why they were signed out.
+  const sessionExpired = searchParams.get('expired') === '1';
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -50,6 +55,13 @@ export default function Login() {
         <p className="text-sm text-slate-500 font-medium mb-6 text-center">
           Sign in to manage your courses and attendance.
         </p>
+
+        {sessionExpired && !errorMsg && (
+          <div className="bg-amber-50 text-amber-800 p-3 rounded-lg text-sm font-semibold
+                          mb-4 border border-amber-200 text-center">
+            Your session expired. Please log in again.
+          </div>
+        )}
 
         {errorMsg && (
           <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm font-semibold mb-4
@@ -99,6 +111,16 @@ export default function Login() {
               style={{ '--tw-ring-color': NAVY }}
               placeholder="••••••••"
             />
+          </div>
+
+          <div className="flex justify-end -mt-2">
+            <Link
+              to="/forgot-password"
+              className="text-xs font-bold hover:underline"
+              style={{ color: NAVY }}
+            >
+              Forgot your password?
+            </Link>
           </div>
 
           <button

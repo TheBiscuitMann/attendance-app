@@ -1,12 +1,12 @@
 // src/components/Layout.jsx
 import { useState, useEffect, useRef } from 'react';
 import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
-import { PROFILE_EVENT } from '../api/profile';
+import { PROFILE_EVENT, fetchProfile as fetchProfileApi } from '../api/profile';
+import { clearTokens } from '../api/client';
 import {
-  DAYS,
   SCHEDULE_EVENT,
   formatTime,
-  loadWeek,
+  fetchWeek,
   todayKey,
   todayLabel,
 } from '../utils/schedule';
@@ -30,24 +30,15 @@ export default function Layout() {
 
   useEffect(() => {
     const fetchProfile = async () => {
-      const token = localStorage.getItem('prezence_token');
-      if (!token) return;
-      try {
-        const response = await fetch('http://127.0.0.1:8000/api/auth/me/', {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const displayName =
-            data.full_name || data.email.split('@')[0] || 'Faculty';
-          setUserName(`Prof. ${displayName}`);
-          setUserInitial(displayName.charAt(0).toUpperCase());
-          setUserEmail(data.email);
-        }
-      } catch (error) {
+      const result = await fetchProfileApi();
+      if (result.success) {
+        const data = result.data;
+        const displayName =
+          data.full_name || data.email.split('@')[0] || 'Faculty';
+        setUserName(`Prof. ${displayName}`);
+        setUserInitial(displayName.charAt(0).toUpperCase());
+        setUserEmail(data.email);
+      } else {
         setUserName('Prof. Faculty');
       }
     };
@@ -59,12 +50,11 @@ export default function Layout() {
 
   /* ── Today's itinerary ───────────────────────────────────────── */
 
-  const loadItinerary = () => {
-    const stored = loadWeek();
-    const classes = [...(stored[todayKey()] || [])].sort((a, b) =>
-      (a.start || '').localeCompare(b.start || '')
-    );
-    setTodayClasses(classes);
+  const loadItinerary = async () => {
+    const result = await fetchWeek();
+    if (result.success) {
+      setTodayClasses(result.week[todayKey()] || []);
+    }
   };
 
   useEffect(() => {
@@ -85,8 +75,7 @@ export default function Layout() {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem('prezence_token');
-    localStorage.removeItem('prezence_refresh');
+    clearTokens();
     navigate('/login');
   };
 
