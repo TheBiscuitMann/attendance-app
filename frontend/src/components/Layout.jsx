@@ -108,7 +108,7 @@ export default function Layout() {
                     transform transition-transform duration-200 ease-out
                     lg:static lg:z-20 lg:translate-x-0 lg:transform-none
                     ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
-        style={{ backgroundColor: NAVY }}
+        style={{ backgroundColor: NAVY, paddingTop: 'env(safe-area-inset-top)' }}
       >
         <div className="p-6 border-b border-white/10 flex items-start justify-between">
           <div>
@@ -169,8 +169,18 @@ export default function Layout() {
       {/* ── Main area ───────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
 
-        <header className="h-16 bg-white shadow-sm border-b border-slate-200 flex
-                           items-center justify-between px-4 sm:px-6 lg:px-8 z-30">
+        <header
+          className="h-16 bg-white shadow-sm border-b border-slate-200 flex
+                     items-center justify-between px-4 sm:px-6 lg:px-8 z-30"
+          style={{
+            // iOS standalone mode draws the page under the status bar /
+            // Dynamic Island (viewport-fit=cover). Grow the header by
+            // that inset so its buttons stay reachable. Zero everywhere
+            // else, so desktop and Android are untouched.
+            paddingTop: 'env(safe-area-inset-top)',
+            height: 'calc(4rem + env(safe-area-inset-top))',
+          }}
+        >
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => setIsSidebarOpen(true)}
@@ -287,7 +297,10 @@ export default function Layout() {
           </div>
         </header>
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto thin-scroll">
+        <main
+          className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto thin-scroll"
+          style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))' }}
+        >
           <Outlet />
         </main>
       </div>

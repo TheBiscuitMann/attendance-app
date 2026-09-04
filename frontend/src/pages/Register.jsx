@@ -43,7 +43,12 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 py-10">
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4 py-10"
+      style={{
+        paddingTop: 'calc(1rem + env(safe-area-inset-top))',
+        paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))',
+      }}
+    >
 
       <div className="text-center mb-8">
         <h1 className="text-4xl font-black tracking-tight" style={{ color: NAVY }}>
