@@ -13,7 +13,13 @@ import Schedule from './pages/Schedule';
 import Profile from './pages/Profile';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
-import SmartSync from './pages/SmartSync';
+
+// SMART SYNC — temporarily switched off (1 of 2).
+// The real page is untouched at ./pages/SmartSync, and so is the backend.
+// To turn it back on: uncomment the import below, delete the placeholder
+// import, and see the second SMART SYNC comment down in the routes.
+// import SmartSync from './pages/SmartSync';
+import SmartSyncComingSoon from './pages/SmartSyncComingSoon';
 
 export default function App() {
 
@@ -87,7 +93,11 @@ export default function App() {
           <Route path="batches/:batchId" element={<BatchDetail />} />
           <Route path="schedule" element={<Schedule />} />
           <Route path="profile" element={<Profile />} />
-          <Route path="sync" element={<SmartSync />} />
+
+          {/* SMART SYNC — temporarily switched off (2 of 2).
+              To turn it back on, put SmartSync back in place of
+              SmartSyncComingSoon here and restore the import above. */}
+          <Route path="sync" element={<SmartSyncComingSoon />} />
         </Route>
 
         {/* Any unknown URL goes home, which in turn bounces to /login
