@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 from . import views
 from . import io_views
+from . import routine_views
 
 urlpatterns = [
     path('health/', views.HealthView.as_view()),
@@ -15,6 +16,7 @@ urlpatterns = [
     path('auth/password-reset/', views.PasswordResetRequestView.as_view()),
     path('auth/password-reset/confirm/', views.PasswordResetConfirmView.as_view()),
     path('schedule/', views.ScheduleView.as_view()),
+    path('schedule/import/', routine_views.ImportRoutineView.as_view()),
 
     # Courses
     path('courses/', views.CourseListCreateView.as_view()),

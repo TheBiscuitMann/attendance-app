@@ -171,3 +171,18 @@ export const saveWeek = async (week) => {
 
 export const todayKey = () => DAYS[new Date().getDay()].key;
 export const todayLabel = () => DAYS[new Date().getDay()].label;
+/* ── Routine PDF import ──────────────────────────────────────────────
+   A PDF routine is parsed on the server (grid reconstruction needs
+   pdfplumber). The response is always a preview — nothing is saved
+   until the teacher confirms, because syncing replaces the whole week. */
+
+export const importRoutinePdf = (file, initials) => {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('initials', initials);
+  return request('/schedule/import/', {
+    method: 'POST',
+    body: form,
+    fallbackError: 'Could not read that routine PDF.',
+  });
+};
