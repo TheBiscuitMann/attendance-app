@@ -44,11 +44,11 @@ export default function Layout() {
         const data = result.data;
         const displayName =
           data.full_name || data.email.split('@')[0] || 'Faculty';
-        setUserName(`Prof. ${displayName}`);
+        setUserName(displayName);
         setUserInitial(displayName.charAt(0).toUpperCase());
         setUserEmail(data.email);
       } else {
-        setUserName('Prof. Faculty');
+        setUserName('Faculty');
       }
     };
     fetchProfile();
