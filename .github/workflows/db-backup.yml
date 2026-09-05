@@ -1,0 +1,109 @@
+name: Database backup
+
+# Daily pg_dump of the Neon production database.
+# The dump is encrypted with a passphrase before it is stored, so it is safe
+# even if the repository (and therefore the artifact) is public.
+
+on:
+  schedule:
+    # 20:00 UTC = 02:00 Bangladesh time, every day.
+    - cron: '0 20 * * *'
+  workflow_dispatch:      # also runnable by hand from the Actions tab
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check that both secrets are set
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::BACKUP_DATABASE_URL is not set. See docs/BACKUP.md."
+            exit 1
+          fi
+          if [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error::BACKUP_PASSPHRASE is not set. Refusing to store an unencrypted dump."
+            exit 1
+          fi
+
+      - name: Detect the Postgres version Neon is running
+        id: pg
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          # psql talks to any server version; pg_dump does not, hence this step.
+          NUM=$(psql "$DATABASE_URL" -tAc 'SHOW server_version_num')
+          MAJOR=$(( NUM / 10000 ))
+          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
+          echo "Neon is running PostgreSQL $MAJOR"
+
+      - name: Install a matching pg_dump
+        run: |
+          set -euo pipefail
+          MAJOR="${{ steps.pg.outputs.major }}"
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "postgresql-client-$MAJOR"
+
+      - name: Dump the database
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          MAJOR="${{ steps.pg.outputs.major }}"
+          STAMP=$(date -u +%Y-%m-%d)
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          "/usr/lib/postgresql/$MAJOR/bin/pg_dump" \
+            --format=custom \
+            --no-owner \
+            --no-acl \
+            --file="prezence-$STAMP.dump" \
+            "$DATABASE_URL"
+          ls -lh "prezence-$STAMP.dump"
+
+      - name: Verify the dump is readable and not empty
+        run: |
+          set -euo pipefail
+          MAJOR="${{ steps.pg.outputs.major }}"
+          COUNT=$("/usr/lib/postgresql/$MAJOR/bin/pg_restore" --list "prezence-$STAMP.dump" \
+            | grep -c 'TABLE DATA' || true)
+          echo "Tables present in dump: $COUNT"
+          if [ "$COUNT" -lt 5 ]; then
+            echo "::error::Only $COUNT tables in the dump — expected at least 5. Not storing this."
+            exit 1
+          fi
+
+      - name: Encrypt
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+            --passphrase "$BACKUP_PASSPHRASE" \
+            --output "prezence-$STAMP.dump.gpg" \
+            "prezence-$STAMP.dump"
+          rm -f "prezence-$STAMP.dump"
+          ls -lh "prezence-$STAMP.dump.gpg"
+
+      - name: Store as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prezence-db-${{ env.STAMP }}
+          path: prezence-*.dump.gpg
+          retention-days: 90
+          if-no-files-found: error
