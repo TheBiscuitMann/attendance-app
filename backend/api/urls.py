@@ -29,6 +29,8 @@ urlpatterns = [
     # Students
     path('students/', views.StudentListCreateView.as_view()),
     path('students/import/', io_views.ImportStudentsView.as_view()),
+    path('students/copy-sources/', views.CopySourcesView.as_view()),
+    path('students/copy/', views.CopyStudentsView.as_view()),
     path('students/<int:pk>/', views.StudentDetailView.as_view()),
 
     # Sessions

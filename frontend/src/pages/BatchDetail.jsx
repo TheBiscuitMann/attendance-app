@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { fetchBatch } from '../api/batches';
 import {
   createStudent, updateStudent, deleteStudent, importStudents,
-  confirmImportStudents,
+  confirmImportStudents, fetchCopySources, copyStudents,
 } from '../api/students';
 import {
   createSession, saveAttendance, fetchSummary, fetchSessions,
@@ -104,6 +104,9 @@ export default function BatchDetail() {
   // PDF only: parsed rows awaiting the teacher's confirmation.
   const [importPreview, setImportPreview] = useState(null);
   const [isConfirming, setIsConfirming] = useState(false);
+  // Other batches with a roster already entered.
+  const [copySources, setCopySources] = useState([]);
+  const [copyingFrom, setCopyingFrom] = useState(null);
 
   // Which format is currently downloading, or null.
   const [exportingFmt, setExportingFmt] = useState(null);
@@ -120,7 +123,10 @@ export default function BatchDetail() {
 
   useEffect(() => {
     if (activeTab === 'summary') loadSummary();
-  }, [activeTab]);
+    // Only needed on the roster tab, and it can change while the page
+    // is open (another course's roster gets filled in).
+    if (activeTab === 'students') loadCopySources();
+  }, [activeTab, batchId]);
 
   const showBanner = (type, text) => {
     setBanner({ type, text });
@@ -387,6 +393,28 @@ export default function BatchDetail() {
     } else {
       setImportReport(result.data);
       if (result.data.created > 0) loadBatchDetails();
+    }
+  };
+
+  const loadCopySources = async () => {
+    const result = await fetchCopySources(batchId);
+    if (result.success) setCopySources(result.data);
+  };
+
+  const handleCopyFrom = async (source) => {
+    if (copyingFrom) return;
+    setCopyingFrom(source.id);
+    const result = await copyStudents(batchId, source.id);
+    setCopyingFrom(null);
+
+    if (result.success) {
+      setImportReport(result.data);
+      if (result.data.created > 0) {
+        loadBatchDetails();
+        loadCopySources();
+      }
+    } else {
+      showBanner('error', result.error);
     }
   };
 
@@ -1109,6 +1137,58 @@ export default function BatchDetail() {
                 </button>
               </form>
             </div>
+
+            {/* ── Copy an existing roster ─────────────────────────── */}
+            {copySources.length > 0 && (
+              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mt-6">
+                <h2 className="text-xl font-bold text-slate-900 mb-1">
+                  Copy from another batch
+                </h2>
+                <p className="text-xs text-slate-500 font-medium leading-relaxed mb-4">
+                  Teaching this same group for another course? Copy the roster instead
+                  of entering it again. Each course keeps its own attendance.
+                </p>
+
+                <div className="space-y-2">
+                  {copySources.map((source) => (
+                    <div
+                      key={source.id}
+                      className={`flex items-center justify-between gap-3 p-3 rounded-lg
+                                  border ${source.same_group
+                                    ? 'border-blue-200 bg-blue-50'
+                                    : 'border-slate-200'}`}
+                    >
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-800 text-sm truncate">
+                          {source.name}
+                          {source.section && ` (${source.section})`}
+                          {source.same_group && (
+                            <span className="ml-2 text-[10px] font-black uppercase
+                                             tracking-wide text-blue-600">
+                              Same batch
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-xs text-slate-500 font-medium truncate">
+                          {source.course_code} · {source.student_count} student
+                          {source.student_count === 1 ? '' : 's'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleCopyFrom(source)}
+                        disabled={!!copyingFrom}
+                        className="press flex-shrink-0 font-bold text-xs uppercase
+                                   tracking-wide px-4 py-2 rounded-lg border
+                                   border-slate-300 bg-white text-slate-700
+                                   hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {copyingFrom === source.id ? 'Copying…' : 'Copy'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* ── Bulk import ─────────────────────────────────────── */}
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mt-6">

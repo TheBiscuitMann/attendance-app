@@ -46,3 +46,16 @@ export const confirmImportStudents = (batchId, students) =>
         body: { batch: batchId, students },
         fallbackError: 'Could not import those students.',
     });
+// Other batches of this teacher that already have a roster — so the
+// same group of students isn't imported once per course.
+export const fetchCopySources = (batchId) =>
+    request(`/students/copy-sources/?batch=${batchId}`, {
+        fallbackError: 'Could not load your other batches.',
+    });
+
+export const copyStudents = (batchId, sourceBatchId) =>
+    request('/students/copy/', {
+        method: 'POST',
+        body: { batch: batchId, source: sourceBatchId },
+        fallbackError: 'Could not copy that roster.',
+    });

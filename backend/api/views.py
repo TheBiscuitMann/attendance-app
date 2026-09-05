@@ -6,6 +6,8 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
+from django.db import transaction
+from django.db.models import Count
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -197,6 +199,102 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
+
+class CopySourcesView(APIView):
+    """GET /api/students/copy-sources/?batch=<id>
+
+    Other batches of this teacher that already have a roster, so the
+    same group of students doesn't have to be imported once per course.
+    A teacher taking both Compiler Construction and DBMS for 58 (G)
+    enters that roster once.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            target = Batch.objects.get(id=request.query_params.get('batch'),
+                                       teacher=request.user)
+        except (Batch.DoesNotExist, ValueError, TypeError):
+            return Response({'error': 'Batch not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        candidates = (Batch.objects
+                      .filter(teacher=request.user)
+                      .exclude(id=target.id)
+                      .select_related('course')
+                      .annotate(count=Count('students'))
+                      .filter(count__gt=0))
+
+        def same_group(batch):
+            return (
+                (batch.name or '').strip().lower() == (target.name or '').strip().lower()
+                and (batch.section or '').strip().lower() == (target.section or '').strip().lower()
+            )
+
+        results = [{
+            'id': batch.id,
+            'name': batch.name,
+            'section': batch.section or '',
+            'course_code': batch.course.code,
+            'course_name': batch.course.name,
+            'student_count': batch.count,
+            # True when this is the same batch and section under a
+            # different course — almost always what the teacher wants.
+            'same_group': same_group(batch),
+        } for batch in candidates]
+
+        # Same batch and section first, then the most recently created.
+        results.sort(key=lambda item: (not item['same_group'], -item['id']))
+        return Response(results)
+
+
+class CopyStudentsView(APIView):
+    """POST /api/students/copy/ — copy a roster into another batch.
+
+    Body: {"batch": <target id>, "source": <source id>}
+
+    The students are copied, not shared: each batch keeps its own rows
+    so attendance stays per-course and a student can drop one course
+    without vanishing from the other. Anyone already in the target is
+    left alone, so copying twice is harmless.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            target = Batch.objects.get(id=request.data.get('batch'), teacher=request.user)
+            source = Batch.objects.get(id=request.data.get('source'), teacher=request.user)
+        except (Batch.DoesNotExist, ValueError, TypeError):
+            return Response({'error': 'Batch not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if target.id == source.id:
+            return Response({'error': 'Pick a different batch to copy from.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        existing_ids = set(target.students.values_list('student_id', flat=True))
+        to_create, skipped = [], []
+
+        for student in source.students.all().order_by('student_id'):
+            entry = {'row': student.student_id, 'student_id': student.student_id,
+                     'name': student.name}
+            if student.student_id in existing_ids:
+                skipped.append(entry)
+            else:
+                to_create.append(Student(batch=target, teacher=request.user,
+                                         student_id=student.student_id,
+                                         name=student.name))
+
+        with transaction.atomic():
+            Student.objects.bulk_create(to_create)
+
+        # Same shape as the file import, so the client shows one report.
+        return Response({
+            'created': len(to_create),
+            'skipped_existing': skipped,
+            'duplicates_in_file': [],
+            'invalid_rows': [],
+            'total_rows': len(to_create) + len(skipped),
+        })
+
 
 class SessionListCreateView(generics.ListCreateAPIView):
     serializer_class = SessionSerializer
