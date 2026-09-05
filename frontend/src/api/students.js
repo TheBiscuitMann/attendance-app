@@ -26,13 +26,23 @@ export const deleteStudent = (studentId) =>
         method: 'DELETE',
         fallbackError: 'Could not remove that student.',
     });
-export const importStudents = (batchId, file) => {
+export const importStudents = (batchId, file, { preview = false } = {}) => {
     const form = new FormData();
     form.append('batch', batchId);
     form.append('file', file);
+    if (preview) form.append('preview', '1');
     return request('/students/import/', {
         method: 'POST',
         body: form,
         fallbackError: 'Could not import that file.',
     });
 };
+
+// Second half of the PDF flow: the rows the teacher approved in the
+// preview are sent back to be created.
+export const confirmImportStudents = (batchId, students) =>
+    request('/students/import/', {
+        method: 'POST',
+        body: { batch: batchId, students },
+        fallbackError: 'Could not import those students.',
+    });

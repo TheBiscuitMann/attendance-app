@@ -13,7 +13,7 @@ from datetime import date
 
 from django.db import transaction
 from rest_framework import status
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -22,7 +22,8 @@ from .models import Batch, Student
 from .views import ELIGIBILITY_THRESHOLD, build_summary
 
 # A roster sheet is tiny. Anything bigger than this is the wrong file.
-MAX_UPLOAD_BYTES = 2 * 1024 * 1024  # 2 MB
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+MAX_PDF_PAGES = 40
 MAX_ROWS = 2000
 
 NAVY = '0B2A59'
@@ -111,96 +112,367 @@ def _detect_columns(rows):
     return 0, 1, 0
 
 
-class ImportStudentsView(APIView):
-    """POST /api/students/import/ — bulk-add students from a spreadsheet.
+# ── Reading a PDF roster ──────────────────────────────────────────────────────
+#
+# PDFs are a page-layout format, not a data format: there are no cells,
+# only text at coordinates. So extraction is best-effort, which is why
+# the PDF path always previews before writing anything.
 
-    Form fields: `batch` (id) and `file` (.xlsx or .csv). Two columns,
-    student_id and name, header row optional. The import is forgiving:
-    good rows are created, bad ones are reported with their row number,
-    and nothing already in the batch is touched.
+def _is_date_like(token):
+    """True for 05/09/2026 and 2026-09-05, false for 231-115-081.
+
+    Dates in headers and footers otherwise get mistaken for IDs.
+    A four-digit year on either end is the giveaway.
+    """
+    match = re.fullmatch(r'(\d{1,4})[\-/](\d{1,2})[\-/](\d{2,4})', token)
+    if not match:
+        return False
+    first, _, last = match.groups()
+    return len(first) == 4 or len(last) == 4
+
+
+SERIAL_PREFIX = re.compile(r'^\s*\d{1,3}\s*[\.\)]\s+')
+ID_TOKEN = re.compile(r'(?<![\w\-])(\d[\d\-\/\._]{2,}\d)(?![\w])')
+
+
+def _looks_like_student_id(cell, min_digits=4):
+    """In a table the column gives context, so 4 digits is enough.
+    In free text there is no column, so callers ask for more — a bare
+    "2026" in a header line is otherwise indistinguishable from an ID.
+    """
+    return (
+        bool(cell)
+        and bool(re.fullmatch(r'[\d\s\-\/\._]+', cell))
+        and sum(ch.isdigit() for ch in cell) >= min_digits
+        and not _is_date_like(cell)
+    )
+
+
+def _score_pdf_columns(rows):
+    """Pick the ID and name columns of a PDF table by their contents.
+
+    A PDF roster usually has a serial column ("1, 2, 3…") that a
+    position-based guess would mistake for the ID. Scoring by content
+    instead: the ID column is the one with long digit strings, the name
+    column the one with words.
+    """
+    width = max(len(row) for row in rows)
+    id_scores = [0] * width
+    name_scores = [0] * width
+
+    for row in rows:
+        for index in range(width):
+            cell = row[index] if index < len(row) else ''
+            if not cell:
+                continue
+            if _looks_like_student_id(cell):
+                id_scores[index] += 1
+            elif re.search(r'[A-Za-z]', cell) and not any(ch.isdigit() for ch in cell):
+                name_scores[index] += 1
+
+    if not any(id_scores) or not any(name_scores):
+        return None, None
+
+    id_col = id_scores.index(max(id_scores))
+    ranked = sorted(range(width), key=lambda i: name_scores[i], reverse=True)
+    name_col = next((i for i in ranked if i != id_col and name_scores[i] > 0), None)
+    return (id_col, name_col) if name_col is not None else (None, None)
+
+
+def _has_header(row):
+    for cell in row[:6]:
+        normalized = _normalize_header(cell)
+        if normalized in ID_HEADERS or 'name' in normalized:
+            return True
+    return False
+
+
+def _pairs_from_pdf_tables(page_tables):
+    """Extract (student_id, name) from tables pdfplumber found."""
+    rows = []
+    for table in page_tables:
+        for row in table:
+            cleaned = [_clean_cell(cell) for cell in row]
+            if any(cleaned):
+                rows.append(cleaned)
+
+    if not rows or max(len(row) for row in rows) < 2:
+        return []
+
+    id_col, name_col = _score_pdf_columns(rows)
+    if id_col is None:
+        return []
+
+    start = 1 if _has_header(rows[0]) else 0
+    pairs = []
+    for number, row in enumerate(rows[start:], start=start + 1):
+        student_id = row[id_col] if id_col < len(row) else ''
+        name = row[name_col] if name_col < len(row) else ''
+        if _looks_like_student_id(student_id) and re.search(r'[A-Za-z]', name):
+            pairs.append((number, student_id, name))
+    return pairs
+
+
+def _pairs_from_pdf_text(text, start_number=1):
+    """Fallback: pull an ID and a name out of each text line.
+
+    Handles "1. 231-115-081  Ahsanul Haque" and the same line without a
+    serial or with the columns reversed.
+    """
+    pairs = []
+    number = start_number
+    for raw_line in text.split('\n'):
+        line = SERIAL_PREFIX.sub('', raw_line.strip())
+        if not line:
+            continue
+
+        found = None
+        for match in ID_TOKEN.finditer(line):
+            if _looks_like_student_id(match.group(1), min_digits=5):
+                found = match
+                break
+        if not found:
+            continue
+
+        name = (line[:found.start()] + ' ' + line[found.end():])
+        name = re.sub(r'\s{2,}', ' ', name).strip(' .-|\t')
+        # Reject anything that reads as a label or a sentence rather than
+        # a name: headers ("Session: Fall 2026"), footers, prose. A colon
+        # anywhere is the strongest signal; so is an implausible length.
+        if (not name
+                or ':' in name
+                or len(name.split()) > 6
+                or not re.search(r'[A-Za-z]', name)):
+            continue
+
+        pairs.append((number, found.group(1), name))
+        number += 1
+    return pairs
+
+
+def _pairs_from_pdf(uploaded):
+    """Rows from a PDF: tables first, text lines as the fallback.
+
+    Raises ValueError with a teacher-readable message when the file
+    can't yield a roster.
+    """
+    import pdfplumber
+
+    table_pairs = []
+    text_chunks = []
+    with pdfplumber.open(uploaded) as pdf:
+        if len(pdf.pages) > MAX_PDF_PAGES:
+            raise ValueError(
+                f'That PDF has {len(pdf.pages)} pages. Please upload a roster '
+                f'of at most {MAX_PDF_PAGES} pages.'
+            )
+        for page in pdf.pages:
+            try:
+                tables = page.extract_tables() or []
+            except Exception:
+                tables = []
+            if tables:
+                table_pairs.extend(_pairs_from_pdf_tables(tables))
+            text_chunks.append(page.extract_text() or '')
+
+    if table_pairs:
+        return table_pairs, 'pdf-table'
+
+    full_text = '\n'.join(text_chunks).strip()
+    if not full_text:
+        raise ValueError(
+            'This PDF has no readable text — it looks like a scan or a photo. '
+            'Scanned rosters cannot be imported reliably; please upload the '
+            'list as .xlsx or .csv instead.'
+        )
+
+    text_pairs = _pairs_from_pdf_text(full_text)
+    if not text_pairs:
+        raise ValueError(
+            'No student rows could be found in that PDF. It needs a student ID '
+            'and a name on each line. If the layout is unusual, save the list '
+            'as .xlsx or .csv instead.'
+        )
+    return text_pairs, 'pdf-text'
+
+
+# ── Turning parsed rows into students ─────────────────────────────────────────
+
+def _clean_rows(rows):
+    """Drop rows where every cell is empty."""
+    return [row for row in rows if any(cell for cell in row)]
+
+
+def _pairs_from_sheet(rows):
+    """(row_number, student_id, name) from a spreadsheet's rows."""
+    id_col, name_col, start = _detect_columns(rows)
+    pairs = []
+    for number, row in enumerate(rows[start:], start=start + 1):
+        student_id = row[id_col] if id_col < len(row) else ''
+        name = row[name_col] if name_col < len(row) else ''
+        pairs.append((number, student_id, name))
+    return pairs
+
+
+def _classify(batch, pairs):
+    """Sort parsed rows into new / already-enrolled / duplicate / invalid."""
+    existing_ids = set(batch.students.values_list('student_id', flat=True))
+    seen_in_file = set()
+
+    new_rows = []
+    skipped_existing = []
+    duplicate_rows = []
+    invalid_rows = []
+
+    for number, student_id, name in pairs:
+        student_id = (student_id or '').strip()[:50]
+        name = (name or '').strip()[:100]
+        entry = {'row': number, 'student_id': student_id, 'name': name}
+
+        if not student_id or not name:
+            invalid_rows.append(entry)
+        elif student_id in existing_ids:
+            skipped_existing.append(entry)
+        elif student_id in seen_in_file:
+            duplicate_rows.append(entry)
+        else:
+            seen_in_file.add(student_id)
+            new_rows.append(entry)
+
+    return {
+        'new_rows': new_rows,
+        'skipped_existing': skipped_existing,
+        'duplicates_in_file': duplicate_rows,
+        'invalid_rows': invalid_rows,
+        'total_rows': len(pairs),
+    }
+
+
+class ImportStudentsView(APIView):
+    """POST /api/students/import/ — bulk-add students to a batch.
+
+    Three shapes, all on this one endpoint:
+
+    * multipart with `file` — parse the sheet or PDF and create the
+      students found (the .xlsx / .csv path).
+    * multipart with `file` and `preview=1` — parse and return what
+      *would* be created, writing nothing. Used for PDFs, where the
+      layout is a guess rather than a grid.
+    * JSON with `students` — create the rows the teacher confirmed
+      after that preview.
+
+    Columns are student_id and name; a header row is optional.
+    Students already in the batch are never touched.
     """
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def post(self, request):
-        batch_id = request.data.get('batch')
-        uploaded = request.FILES.get('file')
-
         try:
-            batch = Batch.objects.get(id=batch_id, teacher=request.user)
+            batch = Batch.objects.get(id=request.data.get('batch'), teacher=request.user)
         except (Batch.DoesNotExist, ValueError, TypeError):
             return Response({'error': 'Batch not found.'}, status=status.HTTP_404_NOT_FOUND)
 
+        # Confirm step: the rows came back from a preview.
+        if 'students' in request.data and not request.FILES.get('file'):
+            return self._commit_confirmed(batch, request.data.get('students'))
+
+        return self._handle_upload(batch, request)
+
+    # ── multipart upload ─────────────────────────────────────────────
+    def _handle_upload(self, batch, request):
+        uploaded = request.FILES.get('file')
         if not uploaded:
             return Response({'error': 'Attach a file to import.'},
                             status=status.HTTP_400_BAD_REQUEST)
         if uploaded.size > MAX_UPLOAD_BYTES:
-            return Response({'error': 'That file is too large. A roster sheet '
-                                      'should be well under 2 MB.'},
+            return Response({'error': 'That file is too large. A roster should be '
+                                      'well under 5 MB.'},
                             status=status.HTTP_400_BAD_REQUEST)
 
         name_lower = (uploaded.name or '').lower()
+        is_pdf = name_lower.endswith('.pdf')
+
         try:
             if name_lower.endswith('.xlsx'):
-                rows = _rows_from_xlsx(uploaded)
+                pairs, source = _pairs_from_sheet(_clean_rows(_rows_from_xlsx(uploaded))), 'xlsx'
             elif name_lower.endswith('.csv'):
-                rows = _rows_from_csv(uploaded)
+                pairs, source = _pairs_from_sheet(_clean_rows(_rows_from_csv(uploaded))), 'csv'
+            elif is_pdf:
+                pairs, source = _pairs_from_pdf(uploaded)
             else:
-                return Response({'error': 'Please upload a .xlsx or .csv file. '
+                return Response({'error': 'Please upload a .xlsx, .csv or .pdf file. '
                                           'Old .xls files need re-saving as .xlsx.'},
                                 status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as err:
+            # Raised by the PDF reader with a message meant for the teacher.
+            return Response({'error': str(err)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception:
-            return Response({'error': 'That file could not be read. Re-save it '
-                                      'from Excel as .xlsx and try again.'},
+            return Response({'error': 'That file could not be read. Re-save it and '
+                                      'try again, or use .xlsx instead.'},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        rows = [row for row in rows if any(cell for cell in row)]
-        if not rows:
+        if not pairs:
             return Response({'error': 'The file has no rows to import.'},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        id_col, name_col, start = _detect_columns(rows)
+        report = _classify(batch, pairs[:MAX_ROWS])
 
-        existing_ids = set(batch.students.values_list('student_id', flat=True))
-        seen_in_file = set()
-        to_create = []
-        skipped_existing = []   # already enrolled in this batch
-        duplicate_rows = []     # the same ID twice within the file
-        invalid_rows = []       # missing an ID or a name
+        # PDF layout is inferred, so the teacher checks it before anything
+        # is written. Spreadsheets import directly, as before.
+        wants_preview = str(request.data.get('preview', '')).lower() in ('1', 'true', 'yes')
+        if is_pdf or wants_preview:
+            return Response({
+                'preview': True,
+                'source': source,
+                'students': report['new_rows'],
+                'skipped_existing': report['skipped_existing'],
+                'duplicates_in_file': report['duplicates_in_file'],
+                'invalid_rows': report['invalid_rows'],
+                'total_rows': report['total_rows'],
+            })
 
-        for offset, row in enumerate(rows[start:], start=start + 1):
-            student_id = row[id_col] if id_col < len(row) else ''
-            name = row[name_col] if name_col < len(row) else ''
+        return self._create(batch, report)
 
-            if not student_id or not name:
-                invalid_rows.append({'row': offset, 'student_id': student_id, 'name': name})
-                continue
+    # ── confirmed rows from a preview ────────────────────────────────
+    def _commit_confirmed(self, batch, students):
+        if not isinstance(students, list) or not students:
+            return Response({'error': 'No students were sent to import.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if len(students) > MAX_ROWS:
+            return Response({'error': f'At most {MAX_ROWS} students can be imported '
+                                      f'at once.'},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-            student_id = student_id[:50]
-            name = name[:100]
-
-            if student_id in existing_ids:
-                skipped_existing.append({'row': offset, 'student_id': student_id, 'name': name})
-                continue
-            if student_id in seen_in_file:
-                duplicate_rows.append({'row': offset, 'student_id': student_id, 'name': name})
-                continue
-
-            seen_in_file.add(student_id)
-            to_create.append(Student(
-                batch=batch, teacher=request.user,
-                student_id=student_id, name=name,
+        pairs = []
+        for index, entry in enumerate(students, start=1):
+            if not isinstance(entry, dict):
+                return Response({'error': 'Malformed student list.'},
+                                status=status.HTTP_400_BAD_REQUEST)
+            pairs.append((
+                entry.get('row', index),
+                str(entry.get('student_id', '')),
+                str(entry.get('name', '')),
             ))
 
+        return self._create(batch, _classify(batch, pairs))
+
+    # ── the write itself ─────────────────────────────────────────────
+    def _create(self, batch, report):
+        to_create = [
+            Student(batch=batch, teacher=batch.teacher,
+                    student_id=entry['student_id'], name=entry['name'])
+            for entry in report['new_rows']
+        ]
         with transaction.atomic():
             Student.objects.bulk_create(to_create)
 
         return Response({
             'created': len(to_create),
-            'skipped_existing': skipped_existing,
-            'duplicates_in_file': duplicate_rows,
-            'invalid_rows': invalid_rows,
-            'total_rows': len(rows) - start,
+            'skipped_existing': report['skipped_existing'],
+            'duplicates_in_file': report['duplicates_in_file'],
+            'invalid_rows': report['invalid_rows'],
+            'total_rows': report['total_rows'],
         })
 
 

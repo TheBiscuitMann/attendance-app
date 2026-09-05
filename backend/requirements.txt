@@ -9,6 +9,9 @@ dj-database-url>=2.1
 openpyxl>=3.1
 reportlab>=4.1
 
+# Reading student rosters out of PDF files.
+pdfplumber>=0.11
+
 # Production only — the WSGI server and static file handler.
 gunicorn>=21.2
 whitenoise>=6.6

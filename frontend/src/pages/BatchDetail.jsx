@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchBatch } from '../api/batches';
-import { createStudent, updateStudent, deleteStudent, importStudents } from '../api/students';
+import {
+  createStudent, updateStudent, deleteStudent, importStudents,
+  confirmImportStudents,
+} from '../api/students';
 import {
   createSession, saveAttendance, fetchSummary, fetchSessions,
   deleteSession, exportSummary,
@@ -98,6 +101,9 @@ export default function BatchDetail() {
   const importInputRef = useRef(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importReport, setImportReport] = useState(null); // backend's result object
+  // PDF only: parsed rows awaiting the teacher's confirmation.
+  const [importPreview, setImportPreview] = useState(null);
+  const [isConfirming, setIsConfirming] = useState(false);
 
   // Which format is currently downloading, or null.
   const [exportingFmt, setExportingFmt] = useState(null);
@@ -369,7 +375,29 @@ export default function BatchDetail() {
     const result = await importStudents(batchId, file);
     setIsImporting(false);
 
+    if (!result.success) {
+      showBanner('error', result.error);
+      return;
+    }
+
+    // A PDF has no real columns, so the backend returns what it *thinks*
+    // it read and writes nothing until the teacher confirms it.
+    if (result.data.preview) {
+      setImportPreview(result.data);
+    } else {
+      setImportReport(result.data);
+      if (result.data.created > 0) loadBatchDetails();
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importPreview || isConfirming) return;
+    setIsConfirming(true);
+    const result = await confirmImportStudents(batchId, importPreview.students);
+    setIsConfirming(false);
+
     if (result.success) {
+      setImportPreview(null);
       setImportReport(result.data);
       if (result.data.created > 0) loadBatchDetails();
     } else {
@@ -1084,16 +1112,17 @@ export default function BatchDetail() {
 
             {/* ── Bulk import ─────────────────────────────────────── */}
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mt-6">
-              <h2 className="text-xl font-bold text-slate-900 mb-1">Import from Excel</h2>
+              <h2 className="text-xl font-bold text-slate-900 mb-1">Import Students</h2>
               <p className="text-xs text-slate-500 font-medium leading-relaxed mb-4">
-                Upload a .xlsx or .csv sheet with two columns — <strong>Student ID</strong> and{' '}
-                <strong>Name</strong>. A header row is optional. Students already in this
-                batch are left untouched.
+                Upload a <strong>.xlsx</strong>, <strong>.csv</strong> or{' '}
+                <strong>.pdf</strong> roster with a student ID and a name per row. A
+                header row is optional. Students already in this batch are left
+                untouched, and PDFs are shown for checking before anything is saved.
               </p>
               <input
                 ref={importInputRef}
                 type="file"
-                accept=".xlsx,.csv"
+                accept=".xlsx,.csv,.pdf"
                 onChange={handleImportFile}
                 className="hidden"
                 aria-label="Choose a roster file to import"
@@ -1328,6 +1357,95 @@ export default function BatchDetail() {
                            text-slate-600 hover:bg-slate-200"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── PDF import preview ─────────────────────────────────── */}
+      {importPreview && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex
+                        items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden
+                          animate-fadeIn">
+            <div className="px-6 pt-6 pb-4">
+              <h3 className="text-lg font-bold text-slate-900">
+                Check before importing
+              </h3>
+              <p className="text-sm text-slate-600 font-medium mt-1">
+                {importPreview.students.length} student
+                {importPreview.students.length === 1 ? '' : 's'} were read from this
+                file. Nothing has been saved yet — PDF layouts vary, so please check
+                the IDs and names look right.
+              </p>
+            </div>
+
+            <div className="px-6 max-h-[45vh] overflow-y-auto thin-scroll">
+              {importPreview.students.length === 0 ? (
+                <p className="text-sm font-bold text-slate-500 py-4">
+                  No new students to add from this file.
+                </p>
+              ) : (
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-white">
+                    <tr className="text-xs font-black text-slate-400 uppercase
+                                   tracking-wider border-b border-slate-200">
+                      <th className="py-2">Student ID</th>
+                      <th className="py-2">Name</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importPreview.students.map((row) => (
+                      <tr key={`preview-${row.row}-${row.student_id}`}
+                          className="border-b border-slate-100">
+                        <td className="py-2 font-bold text-slate-700">{row.student_id}</td>
+                        <td className="py-2 font-medium text-slate-800">{row.name}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              {importPreview.skipped_existing.length > 0 && (
+                <p className="text-xs font-bold text-slate-500 mt-4">
+                  {importPreview.skipped_existing.length} already in this batch — they
+                  will be skipped.
+                </p>
+              )}
+              {importPreview.invalid_rows.length > 0 && (
+                <p className="text-xs font-bold text-rose-600 mt-1">
+                  {importPreview.invalid_rows.length} row
+                  {importPreview.invalid_rows.length === 1 ? '' : 's'} could not be read
+                  and will be skipped.
+                </p>
+              )}
+              <p className="text-xs text-slate-400 font-medium mt-4 mb-2">
+                Wrong or missing rows? Cancel and upload the list as .xlsx instead —
+                spreadsheets import exactly.
+              </p>
+            </div>
+
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex
+                            justify-end gap-3">
+              <button
+                onClick={() => setImportPreview(null)}
+                disabled={isConfirming}
+                className="press font-bold text-sm px-5 py-2.5 rounded-lg text-slate-600
+                           hover:bg-slate-200 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmImport}
+                disabled={isConfirming || importPreview.students.length === 0}
+                className="press text-white font-bold text-sm px-6 py-2.5 rounded-lg
+                           shadow-md uppercase tracking-wide disabled:opacity-60"
+                style={{ backgroundColor: NAVY }}
+              >
+                {isConfirming
+                  ? 'Importing…'
+                  : `Import ${importPreview.students.length}`}
               </button>
             </div>
           </div>
