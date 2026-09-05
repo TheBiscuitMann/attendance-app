@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { loginFaculty } from '../api/auth';
+import PasswordInput from '../components/PasswordInput';
 
 const NAVY = '#0B2A59';
 
@@ -104,17 +105,12 @@ export default function Login() {
             >
               Password
             </label>
-            <input
+            <PasswordInput
               id="login-password"
-              type="password"
-              required
               autoComplete="current-password"
+              placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg border border-slate-300 outline-none
-                         transition-all focus:ring-2 focus:border-transparent"
-              style={{ '--tw-ring-color': NAVY }}
-              placeholder="••••••••"
             />
           </div>
 

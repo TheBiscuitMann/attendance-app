@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { registerFaculty } from '../api/auth';
+import PasswordInput from '../components/PasswordInput';
 
 const NAVY = '#0B2A59';
 
@@ -130,17 +131,12 @@ export default function Register() {
             >
               Password
             </label>
-            <input
+            <PasswordInput
               id="reg-password"
-              type="password"
-              required
               autoComplete="new-password"
+              placeholder="At least 8 characters"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg border border-slate-300 outline-none
-                         transition-all focus:ring-2 focus:border-transparent"
-              style={{ '--tw-ring-color': NAVY }}
-              placeholder="At least 8 characters"
             />
           </div>
 
@@ -151,17 +147,12 @@ export default function Register() {
             >
               Confirm password
             </label>
-            <input
+            <PasswordInput
               id="reg-confirm"
-              type="password"
-              required
               autoComplete="new-password"
+              placeholder="••••••••"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg border border-slate-300 outline-none
-                         transition-all focus:ring-2 focus:border-transparent"
-              style={{ '--tw-ring-color': NAVY }}
-              placeholder="••••••••"
             />
           </div>
 

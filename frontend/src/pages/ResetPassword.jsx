@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { confirmPasswordReset } from '../api/auth';
+import PasswordInput from '../components/PasswordInput';
 
 const NAVY = '#0B2A59';
 
@@ -121,18 +122,13 @@ export default function ResetPassword() {
                 >
                   New password
                 </label>
-                <input
-                  id="new-password"
-                  type="password"
-                  required
-                  autoComplete="new-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg border border-slate-300 outline-none
-                             transition-all focus:ring-2 focus:border-transparent"
-                  style={{ '--tw-ring-color': NAVY }}
-                  placeholder="At least 8 characters"
-                />
+                <PasswordInput
+              id="new-password"
+              autoComplete="new-password"
+              placeholder="At least 8 characters"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
               </div>
 
               <div>
@@ -142,18 +138,13 @@ export default function ResetPassword() {
                 >
                   Confirm new password
                 </label>
-                <input
-                  id="confirm-new-password"
-                  type="password"
-                  required
-                  autoComplete="new-password"
-                  value={confirm}
-                  onChange={(e) => setConfirm(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg border border-slate-300 outline-none
-                             transition-all focus:ring-2 focus:border-transparent"
-                  style={{ '--tw-ring-color': NAVY }}
-                  placeholder="••••••••"
-                />
+                <PasswordInput
+              id="confirm-new-password"
+              autoComplete="new-password"
+              placeholder="••••••••"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+            />
               </div>
 
               <button
