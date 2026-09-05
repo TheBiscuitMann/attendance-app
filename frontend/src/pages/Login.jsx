@@ -111,6 +111,7 @@ export default function Login() {
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              style={{ '--tw-ring-color': NAVY }}
             />
           </div>
 

@@ -1,6 +1,7 @@
 // src/pages/Profile.jsx
 import { useState, useEffect } from 'react';
 import { fetchProfile, updateFullName, changePassword } from '../api/profile';
+import PasswordInput from '../components/PasswordInput';
 
 const NAVY = '#0B2A59';
 
@@ -202,17 +203,15 @@ export default function Profile() {
             >
               Current password
             </label>
-            <input
-              id="current-password"
-              type="password"
-              required
-              autoComplete="current-password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              className={inputClass}
-              style={{ '--tw-ring-color': NAVY }}
-              placeholder="••••••••"
-            />
+            <PasswordInput
+                id="current-password"
+                autoComplete="current-password"
+                placeholder="••••••••"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className={inputClass}
+                style={{ '--tw-ring-color': NAVY }}
+              />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -223,16 +222,14 @@ export default function Profile() {
               >
                 New password
               </label>
-              <input
+              <PasswordInput
                 id="new-password"
-                type="password"
-                required
                 autoComplete="new-password"
+                placeholder="At least 8 characters"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 className={inputClass}
                 style={{ '--tw-ring-color': NAVY }}
-                placeholder="At least 8 characters"
               />
             </div>
 
@@ -243,16 +240,14 @@ export default function Profile() {
               >
                 Confirm new password
               </label>
-              <input
+              <PasswordInput
                 id="confirm-password"
-                type="password"
-                required
                 autoComplete="new-password"
+                placeholder="••••••••"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className={inputClass}
                 style={{ '--tw-ring-color': NAVY }}
-                placeholder="••••••••"
               />
             </div>
           </div>

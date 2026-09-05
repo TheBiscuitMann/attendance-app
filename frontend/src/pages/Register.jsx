@@ -137,6 +137,7 @@ export default function Register() {
               placeholder="At least 8 characters"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              style={{ '--tw-ring-color': NAVY }}
             />
           </div>
 
@@ -153,6 +154,7 @@ export default function Register() {
               placeholder="••••••••"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
+            style={{ '--tw-ring-color': NAVY }}
             />
           </div>
 
