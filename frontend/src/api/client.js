@@ -28,6 +28,32 @@ export const clearTokens = () => {
 
 export const isLoggedIn = () => getToken() !== null;
 
+/* ── Cold starts ─────────────────────────────────────────────────────
+   The backend sleeps after 15 minutes of no traffic, and the first
+   request after that has to wait for the server to start up — up to a
+   minute. Nothing is wrong when this happens, but a spinner sitting
+   there for 50 seconds looks broken, so we do two things about it.
+
+   warmUp() is the first: call it as soon as a page loads, before the
+   teacher has typed anything, so the server boots while they're still
+   filling in the form instead of after they hit the button. It is
+   deliberately fire-and-forget — we never wait on it, never read the
+   response, and ignore every error, including a 404 if the health
+   endpoint isn't there. Any request at all is enough to wake it. */
+
+export const warmUp = () => {
+  try {
+    fetch(`${API_BASE}/health/`, { method: 'GET' }).catch(() => {});
+  } catch {
+    /* nothing to do — this is a hint, not a dependency */
+  }
+};
+
+// The second: request() can tell a page when something is taking long
+// enough that the teacher deserves an explanation. Anything past this
+// is almost certainly a server waking up.
+const SLOW_AFTER_MS = 3000;
+
 /* ── Error text ──────────────────────────────────────────────────────
    DRF returns errors in several shapes: {"detail": "..."},
    {"error": "..."}, or {"field": ["message"]}. Pull out something a
@@ -108,7 +134,7 @@ const buildHeaders = (auth, hasBody) => {
 
 export const request = async (
   path,
-  { method = 'GET', body, auth = true, fallbackError } = {}
+  { method = 'GET', body, auth = true, fallbackError, onSlow } = {}
 ) => {
   // A FormData body (file uploads) must go through untouched, and the
   // browser must set its own multipart Content-Type with the boundary
@@ -116,60 +142,88 @@ export const request = async (
   const isFormData =
     typeof FormData !== 'undefined' && body instanceof FormData;
 
-  const send = async () =>
-    fetch(`${API_BASE}${path}`, {
-      method,
-      headers: buildHeaders(auth, body !== undefined && !isFormData),
-      body: isFormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
-    });
-
-  let response;
-  try {
-    response = await send();
-  } catch (error) {
-    return {
-      success: false,
-      error: 'Cannot reach the server. Check that the backend is running.',
-      networkError: true,
-    };
+  // Pages that pass onSlow get told when a request crosses the
+  // threshold, and told again the moment it finishes — however it
+  // finishes. Everything below runs inside the try/finally so there's
+  // no exit path that leaves a page stuck showing "still loading".
+  let slowTimer = null;
+  if (onSlow) {
+    slowTimer = setTimeout(() => onSlow(true), SLOW_AFTER_MS);
   }
+  const clearSlow = () => {
+    if (slowTimer) {
+      clearTimeout(slowTimer);
+      slowTimer = null;
+    }
+    if (onSlow) onSlow(false);
+  };
 
-  // Expired access token: renew once, retry once, and only give up
-  // (and send them to login) if that also fails.
-  if (response.status === 401 && auth) {
-    const renewed = await refreshAccessToken();
-    if (renewed) {
-      try {
-        response = await send();
-      } catch {
-        return { success: false, error: 'Cannot reach the server.', networkError: true };
+  try {
+    const send = async () =>
+      fetch(`${API_BASE}${path}`, {
+        method,
+        headers: buildHeaders(auth, body !== undefined && !isFormData),
+        body: isFormData
+          ? body
+          : body !== undefined
+          ? JSON.stringify(body)
+          : undefined,
+      });
+
+    let response;
+    try {
+      response = await send();
+    } catch (error) {
+      return {
+        success: false,
+        error: 'Could not reach the server. Check your connection and try again.',
+        networkError: true,
+      };
+    }
+
+    // Expired access token: renew once, retry once, and only give up
+    // (and send them to login) if that also fails.
+    if (response.status === 401 && auth) {
+      const renewed = await refreshAccessToken();
+      if (renewed) {
+        try {
+          response = await send();
+        } catch {
+          return {
+            success: false,
+            error: 'Could not reach the server. Check your connection and try again.',
+            networkError: true,
+          };
+        }
+      }
+      if (response.status === 401) {
+        forceLogin();
+        return { success: false, error: 'Your session expired. Please log in again.' };
       }
     }
-    if (response.status === 401) {
-      forceLogin();
-      return { success: false, error: 'Your session expired. Please log in again.' };
+
+    if (response.status === 429) {
+      return {
+        success: false,
+        error: 'Too many attempts. Please wait a minute and try again.',
+      };
     }
+
+    // 204 No Content (a successful DELETE) has no body to parse.
+    if (response.status === 204) return { success: true, data: null };
+
+    let data = null;
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
+    }
+
+    if (response.ok) return { success: true, data };
+    return { success: false, error: readableError(data, fallbackError), data };
+  } finally {
+    clearSlow();
   }
-
-  if (response.status === 429) {
-    return {
-      success: false,
-      error: 'Too many attempts. Please wait a minute and try again.',
-    };
-  }
-
-  // 204 No Content (a successful DELETE) has no body to parse.
-  if (response.status === 204) return { success: true, data: null };
-
-  let data = null;
-  try {
-    data = await response.json();
-  } catch {
-    data = null;
-  }
-
-  if (response.ok) return { success: true, data };
-  return { success: false, error: readableError(data, fallbackError), data };
 };
 /* ── Saving a server-generated file ──────────────────────────────────
    Exports arrive base64-encoded inside a normal JSON response (see

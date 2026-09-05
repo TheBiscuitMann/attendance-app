@@ -1,7 +1,8 @@
 // src/pages/Login.jsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { loginFaculty } from '../api/auth';
+import { warmUp } from '../api/client';
 import PasswordInput from '../components/PasswordInput';
 
 const NAVY = '#0B2A59';
@@ -11,9 +12,30 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSlow, setIsSlow] = useState(false);
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+
+  // The server sleeps after 15 minutes of no traffic and takes up to a
+  // minute to start again. Poke it the moment this page opens, so it
+  // boots while the teacher is typing rather than after they submit.
+  // Fire-and-forget: nothing here depends on it working.
+  useEffect(() => {
+    warmUp();
+  }, []);
+
+  // A login that runs past a few seconds is almost always the server
+  // still starting up, not a problem. Say so, rather than leaving a
+  // button that looks frozen.
+  useEffect(() => {
+    if (!isLoading) {
+      setIsSlow(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => setIsSlow(true), 3000);
+    return () => clearTimeout(timer);
+  }, [isLoading]);
 
   // The API client redirects here with ?expired=1 when a token has run
   // out, so the teacher knows why they were signed out.
@@ -132,8 +154,21 @@ export default function Login() {
                        mt-2 disabled:opacity-70"
             style={{ backgroundColor: NAVY }}
           >
-            {isLoading ? 'Authenticating…' : 'Secure Login'}
+            {isLoading
+              ? isSlow
+                ? 'Starting the server…'
+                : 'Authenticating…'
+              : 'Secure Login'}
           </button>
+
+          {isSlow && (
+            <div className="bg-slate-50 text-slate-600 p-3 rounded-lg text-xs font-semibold
+                            mt-3 border border-slate-200 text-center animate-slideDown">
+              The server sleeps when nobody is using it. Waking it up takes
+              up to a minute — keep this page open and you'll be signed in
+              automatically.
+            </div>
+          )}
         </form>
 
         <p className="text-center text-sm font-medium text-slate-500 mt-6 pt-5
